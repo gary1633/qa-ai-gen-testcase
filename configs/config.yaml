@@ -1,0 +1,25 @@
+# Cấu hình mặc định toàn dự án (Mỗi cá nhân có thể override qua file .env hoặc CLI flag)
+model:
+  provider: "google"  # google | openai | anthropic | deepseek | ollama | openrouter | custom
+  name: "gemini-3.6-flash"
+  temperature: 0.1
+  max_tokens: 8192
+
+qa_rules:
+  min_review_score: 85
+  max_review_iterations: 3
+  strict_assertion_required: true
+  banned_vague_words:
+    - "verify it works"
+    - "looks right"
+    - "wait a bit"
+    - "some valid data"
+    - "hoạt động bình thường"
+    - "kiểm tra xem có hoạt động không"
+    - "chờ một chút"
+
+excel:
+  template_path: "EF_TestCases.xlsx"   # Template chuẩn có logo và biểu đồ
+  base_sheet_name: "EF_BLOCKADE_SA"
+  default_app_name: "Core TM / Edge Function"
+  default_version: "0.0.1"

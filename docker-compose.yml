@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  qa-slack-bot:
+    build: .
+    container_name: qa_agentic_slack_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./outputs:/app/outputs
+      - ./configs:/app/configs
+    environment:
+      - PYTHONUNBUFFERED=1
