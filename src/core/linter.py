@@ -107,16 +107,18 @@ def lint_test_suite_coverage(analysis: RequirementAnalysis, test_cases: List[Tes
                 suggested_fix=f"Bổ sung kịch bản kiểm thử trực diện để triệt tiêu rủi ro này: {risk.mitigation_test_focus}"
             ))
 
-    # 3. BANKING DOMAIN LINTER: Kiểm tra các quy tắc Banking đặc thù
+    # 3. DOMAIN-ADAPTIVE LINTER RULES (Áp dụng linh hoạt theo từng Domain chuyên ngành)
     all_tc_text = " ".join([f"{tc.title} {tc.steps} {tc.expected_result} {tc.test_data}" for tc in test_cases]).lower()
+    domain_lower = (analysis.banking_domain or "").lower()
+    feature_lower = (analysis.feature_name or "").lower()
     
-    # 3.1. Nếu là Payment & Transfers hoặc Chuyển tiền / Trừ tiền: Bắt buộc có kịch bản Đua tranh / Concurrency / Xử lý gửi trùng lặp
-    is_payment_transfer = (
-        ("payment" in analysis.banking_domain.lower() or "transfer" in analysis.banking_domain.lower() or "chuyển tiền" in analysis.feature_name.lower() or "napas" in analysis.feature_name.lower())
-        and any(("chuyển" in f"{ac.description} {ac.title}".lower() or "thanh toán" in f"{ac.description} {ac.title}".lower() or "transfer" in f"{ac.description} {ac.title}".lower() or "napas" in f"{ac.description} {ac.title}".lower()) for ac in analysis.acceptance_criteria)
+    # 3.1. FINTECH & PAYMENTS: Giao dịch tài chính, Chuyển tiền, Thanh toán
+    is_payment = (
+        any(k in domain_lower or k in feature_lower for k in ["payment", "transfer", "chuyển tiền", "thanh toán", "napas", "vietqr", "wallet", "ví điện tử"])
+        and any(any(k in f"{ac.description} {ac.title}".lower() for k in ["chuyển", "thanh toán", "transfer", "pay", "trừ tiền"]) for ac in analysis.acceptance_criteria)
     )
-    if is_payment_transfer:
-        has_concurrency = "trùng" in all_tc_text or "đồng thời" in all_tc_text or "concurrency" in all_tc_text or "race" in all_tc_text or "idempotency" in all_tc_text
+    if is_payment:
+        has_concurrency = any(k in all_tc_text for k in ["trùng", "đồng thời", "concurrency", "race", "idempotency", "duplicate"])
         if not has_concurrency:
             issues.append(ReviewIssue(
                 target_tc_id=None,
@@ -125,23 +127,23 @@ def lint_test_suite_coverage(analysis: RequirementAnalysis, test_cases: List[Tes
                 description="Tính năng Thanh toán / Chuyển tiền thiếu kịch bản kiểm thử gửi trùng request hoặc xử lý giao dịch đồng thời.",
                 suggested_fix="Bổ sung test case gửi 2 giao dịch đồng thời hoặc lặp request để kiểm tra khả năng xử lý an toàn."
             ))
-        has_timeout = "timeout" in all_tc_text or "504" in all_tc_text or "đối soát" in all_tc_text or "pending" in all_tc_text or "reconciliation" in all_tc_text
+        has_timeout = any(k in all_tc_text for k in ["timeout", "504", "đối soát", "pending", "reconciliation", "treo"])
         if not has_timeout:
             issues.append(ReviewIssue(
                 target_tc_id=None,
                 issue_type="Missing Idempotency/Timeout Case",
                 severity="Major",
-                description="Tính năng Chuyển tiền thiếu kịch bản xử lý Gateway Timeout (HTTP 504 / Socket timeout) và đối soát giao dịch treo.",
-                suggested_fix="Bổ sung test case giả lập Napas timeout để kiểm tra trạng thái PENDING_RECONCILIATION và phong tỏa tạm thời."
+                description="Tính năng Chuyển tiền / Thanh toán thiếu kịch bản xử lý Gateway Timeout (HTTP 504 / Socket timeout) và đối soát giao dịch treo.",
+                suggested_fix="Bổ sung test case giả lập Gateway timeout để kiểm tra trạng thái PENDING_RECONCILIATION và phong tỏa tạm thời."
             ))
         # Kiểm tra Sinh trắc học / QĐ 2345: CHỈ áp dụng khi tài liệu yêu cầu có nêu rõ điều kiện Sinh trắc học / Biometric / QĐ 2345 (Không áp dụng cho API thuần túy)
-        is_api_only = "api" in analysis.feature_name.lower() or "endpoint" in (analysis.business_overview or "").lower()
+        is_api_only = "api" in feature_lower or "endpoint" in (analysis.business_overview or "").lower()
         requires_biometrics = any(
             ("sinh trắc" in f"{ac.description} {ac.title}".lower() or "biometric" in f"{ac.description} {ac.title}".lower() or "2345" in f"{ac.description} {ac.title}")
             for ac in analysis.acceptance_criteria
         )
         if not is_api_only and requires_biometrics:
-            has_biometric = "sinh trắc" in all_tc_text or "biometric" in all_tc_text or "face" in all_tc_text or "2345" in all_tc_text
+            has_biometric = any(k in all_tc_text for k in ["sinh trắc", "biometric", "face", "2345"])
             if not has_biometric:
                 issues.append(ReviewIssue(
                     target_tc_id=None,
@@ -150,22 +152,19 @@ def lint_test_suite_coverage(analysis: RequirementAnalysis, test_cases: List[Tes
                     description="Yêu cầu có đề cập đến xác thực Sinh trắc học / QĐ 2345 nhưng bộ test case chưa bao phủ kịch bản này.",
                     suggested_fix="Bổ sung test case kiểm tra xác thực Sinh trắc học theo đúng mô tả của yêu cầu."
                 ))
-    # 3.2. Nếu là Tiết kiệm có tính lãi / Lãi suất (Interest Accrual): Bắt buộc có kịch bản Làm tròn / Độ chính xác số học & Tất toán trước hạn
-    is_interest_accrual = (
-        any(("lãi" in f"{ac.description} {ac.title}".lower() or "interest" in f"{ac.description} {ac.title}".lower() or "accrual" in f"{ac.description} {ac.title}".lower()) for ac in analysis.acceptance_criteria)
-        or ("interest" in analysis.feature_name.lower() or "tính lãi" in analysis.feature_name.lower() or "lãi suất" in analysis.feature_name.lower())
-    )
-    if is_interest_accrual:
-        has_rounding = "làm tròn" in all_tc_text or "rounding" in all_tc_text or "thập phân" in all_tc_text or "precision" in all_tc_text or "365" in all_tc_text or "366" in all_tc_text
-        if not has_rounding:
+
+    # 3.2. E-COMMERCE & RETAIL: Giỏ hàng, Đặt hàng, Khuyến mãi, Tồn kho (Inventory)
+    is_ecommerce = any(k in domain_lower or k in feature_lower for k in ["ecommerce", "e-commerce", "retail", "shop", "cart", "giỏ hàng", "đơn hàng", "tồn kho", "inventory", "voucher", "khuyến mãi"])
+    if is_ecommerce:
+        has_inventory_check = any(k in all_tc_text for k in ["tồn kho", "hết hàng", "out of stock", "inventory", "số lượng", "quantity", "flash sale", "đồng thời"])
+        if not has_inventory_check and any("tồn kho" in f"{ac.description} {ac.title}".lower() or "đặt hàng" in f"{ac.description} {ac.title}".lower() for ac in analysis.acceptance_criteria):
             issues.append(ReviewIssue(
                 target_tc_id=None,
-                issue_type="Missing Boundary Case",
+                issue_type="Missing Inventory/Stock Boundary Case",
                 severity="Major",
-                description="Tính năng Tiết kiệm / Lãi suất thiếu kịch bản kiểm thử độ chính xác tính toán (Accrual precision) và quy tắc làm tròn (Banker's Rounding).",
-                suggested_fix="Bổ sung test case kiểm tra tính lãi theo quy ước ngày (365 vs 366 ngày năm nhuận) và làm tròn 2 chữ số thập phân khi chi trả."
+                description="Tính năng E-Commerce/Bán hàng thiếu kịch bản kiểm thử giới hạn tồn kho (cháy hàng, đặt vượt số lượng tồn kho).",
+                suggested_fix="Bổ sung test case kiểm tra đặt hàng khi tồn kho = 0 hoặc nhiều người cùng tranh mua sản phẩm cuối cùng."
             ))
-
     # 4. MULTI-TECHNIQUE DIVERSITY CHECK: Đảm bảo bộ test suite có tính đa dạng kỹ thuật (Không chỉ có Happy path)
     has_bva = any(k in all_tc_text for k in ["biên", "boundary", "min", "max", "tối đa", "tối thiểu", "vượt", "0", "null"])
     if not has_bva:

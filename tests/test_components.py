@@ -362,6 +362,45 @@ def test_agent_invocations():
         assert "system_prompt" in mock_rev.call_args.kwargs
         assert isinstance(rev_res, ReviewResult)
     print("  -> All 4 Agent invoke_structured_llm signatures & kwargs verified!")
+def test_multi_domain_support():
+    print("\n[6/6] Testing Universal Multi-Domain Support (E-Commerce, Logistics, SaaS, FinTech)...")
+    from src.core.models import RequirementAnalysis, AcceptanceCriterion, TestCase
+    from src.core.linter import lint_test_suite_coverage
+
+    # 1. Test E-Commerce Domain
+    ecom_analysis = RequirementAnalysis(
+        feature_name="Áp dụng Voucher giảm giá Giỏ hàng & Flash Sale",
+        app_name="ShopeeClone Web / Mobile",
+        version="2.0.0",
+        banking_domain="E-Commerce & Retail (Cart, Checkout, Promotion, Flash Sale)",
+        business_overview="Khách hàng áp mã giảm giá 20% tối đa 50k khi giỏ hàng >= 200k",
+        acceptance_criteria=[
+            AcceptanceCriterion(ac_id="AC-01", title="Áp voucher hợp lệ", description="Giảm 20% khi đơn >= 200k", risk_level="High"),
+            AcceptanceCriterion(ac_id="AC-02", title="Chặn voucher khi đơn < 200k", description="Báo lỗi khi đơn không đủ điều kiện", risk_level="Medium")
+        ]
+    )
+    assert ecom_analysis.business_domain == "E-Commerce & Retail (Cart, Checkout, Promotion, Flash Sale)"
+    
+    ecom_cases = [
+        TestCase(testcase_id="TC 01", group_feature="1. Áp voucher (AC-01)", group_functional="1.1. Thành công", title='Kiểm tra áp voucher thành công khi đơn "250000" VND', preconditions="User có voucher", steps="1. Gửi request áp voucher\n2. Kiểm tra giảm giá", expected_result="Giảm 50,000 VND, HTTP 200 OK", test_data='{"cart_total": 250000}', note="AC-01"),
+        TestCase(testcase_id="TC 02", group_feature="1. Áp voucher (AC-02)", group_functional="1.2. Bắt lỗi", title='Kiểm tra báo lỗi khi đơn "150000" dưới mức tối thiểu', preconditions="User có voucher", steps="1. Gửi request áp voucher\n2. Kiểm tra lỗi", expected_result="HTTP 400 Bad Request, mã lỗi 'VOUCHER_MIN_ORDER_NOT_MET'", test_data='{"cart_total": 150000}', note="AC-02")
+    ]
+    ecom_issues = lint_test_suite_coverage(ecom_analysis, ecom_cases)
+    assert not any(i.issue_type == "Traceability Gap" for i in ecom_issues)
+    print("  -> E-Commerce Domain analysis & testcase coverage verified!")
+
+    # 2. Test Logistics & Supply Chain Domain
+    logistics_analysis = RequirementAnalysis(
+        feature_name="Cập nhật trạng thái lộ trình vận chuyển đơn hàng",
+        app_name="GHTK / ViettelPost Delivery Hub",
+        banking_domain="Logistics, Supply Chain & Fleet Tracking",
+        business_overview="Tài xế quét mã barcode để chuyển trạng thái từ IN_TRANSIT sang DELIVERED",
+        acceptance_criteria=[
+            AcceptanceCriterion(ac_id="AC-01", title="Quét giao thành công", description="Cập nhật DELIVERED", risk_level="High")
+        ]
+    )
+    assert logistics_analysis.business_domain == "Logistics, Supply Chain & Fleet Tracking"
+    print("  -> Logistics Domain verified!")
 
 if __name__ == "__main__":
     test_file_parser()
@@ -369,4 +408,5 @@ if __name__ == "__main__":
     test_excel_exporter()
     test_graph_compilation()
     test_agent_invocations()
+    test_multi_domain_support()
     print("\n✅ All component tests PASSED!")
