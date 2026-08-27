@@ -21,6 +21,17 @@ def load_config() -> Dict[str, Any]:
     return {}
 
 
+def load_qa_rules() -> Dict[str, Any]:
+    """Đọc block qa_rules từ config.yaml, có giá trị mặc định an toàn."""
+    rules = load_config().get("qa_rules") or {}
+    return {
+        "min_review_score": int(rules.get("min_review_score", 95)),
+        "max_review_iterations": int(rules.get("max_review_iterations", 3)),
+        "strict_assertion_required": bool(rules.get("strict_assertion_required", True)),
+        "banned_vague_words": list(rules.get("banned_vague_words") or []),
+    }
+
+
 def detect_provider(provider: Optional[str] = None, model_name: Optional[str] = None) -> str:
     """Tự động nhận diện provider từ tên model hoặc biến môi trường"""
     if provider:

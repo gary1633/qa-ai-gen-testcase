@@ -1,9 +1,9 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from src.core.models import RequirementAnalysis, TestCase, ReviewResult, ReviewIssue, TraceabilityItem
-from src.core.linter import lint_test_case, lint_test_suite_coverage
-from src.core.llm import invoke_structured_llm
-from src.core.prompt_loader import load_prompt
+from src.core.models import RequirementAnalysis, TestCase, TestScenario, ReviewResult, ReviewIssue, TraceabilityItem
+from src.core.linter import lint_test_case, lint_test_suite_coverage, lint_scenarios
+from src.core.llm import invoke_structured_llm, load_qa_rules
+from src.core.prompt_loader import load_composite, load_domain_pack
 
 
 class SemanticReviewPayload(BaseModel):
@@ -19,25 +19,35 @@ def review_and_lint_test_suite(
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    *,
+    scenarios: Optional[List[TestScenario]] = None,
+    raw_content: str = ""
 ) -> ReviewResult:
     """
     Kết hợp Rule-based Linter và LLM Semantic Review để đánh giá toàn diện chất lượng Test Suite.
     Thực hiện kiểm tra Bidirectional Traceability (Truy vết 2 chiều) và Requirement Drift Detection.
-    Prompt được nạp động từ file Markdown: prompts/04_qa_reviewer.md.
+    Prompt được nạp động từ file Markdown: prompts/04_qa_reviewer.md + prompts/shared/severity_priority_rubric.md.
     """
-    system_prompt = load_prompt("04_qa_reviewer")
+    system_prompt = load_composite("04_qa_reviewer", "shared/severity_priority_rubric")
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
 
-    # 1. Chạy Deterministic Linter
+    # 1. Chạy Deterministic Linter (Test Case level + Scenario level)
     static_issues: List[ReviewIssue] = []
     for tc in test_cases:
         static_issues.extend(lint_test_case(tc))
-    static_issues.extend(lint_test_suite_coverage(analysis, test_cases))
-    
+    static_issues.extend(lint_test_suite_coverage(analysis, test_cases, raw_content=raw_content))
+    static_issues.extend(lint_scenarios(analysis, scenarios or []))
+
     # 2. Chuẩn bị prompt cho Semantic Reviewer
     user_prompt = f"""TÍNH NĂNG: {analysis.feature_name}
 PHÂN HỆ: {analysis.banking_domain}
 BẤT BIẾN NGHIỆP VỤ: {analysis.banking_invariants}
+
+================================================================================
+DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ - DÙNG ĐỂ ĐÁNH GIÁ ĐỘ BAO PHỦ):
+================================================================================
+{domain_pack}
 
 DANH SÁCH TIÊU CHÍ CHẤP NHẬN (AC) & BUSINESS RULES:
 """
@@ -101,8 +111,9 @@ DANH SÁCH TIÊU CHÍ CHẤP NHẬN (AC) & BUSINESS RULES:
     has_critical = any(issue.severity == "Critical" for issue in all_issues)
     has_major = any(issue.severity == "Major" for issue in all_issues)
     
-    # Quality Gate: Pass nếu score >= 95 và KHÔNG có Critical / Major issues
-    is_passed = (final_score >= 95) and (not has_critical) and (not has_major)
+    # Quality Gate: Pass nếu score >= min_review_score (config.yaml qa_rules) và KHÔNG có Critical / Major issues
+    min_score = load_qa_rules()["min_review_score"]
+    is_passed = (final_score >= min_score) and (not has_critical) and (not has_major)
     return ReviewResult(
         total_cases_reviewed=len(test_cases),
         passed=is_passed,

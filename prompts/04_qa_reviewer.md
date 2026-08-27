@@ -38,7 +38,10 @@ TIÊU CHÍ ĐÁNH GIÁ CHẤT LƯỢNG NGHIỆM THU (ENTERPRISE QA QUALITY GATE)
 NHIỆM VỤ ĐẦU RA:
 ================================================================================
 1. Lập danh sách `traceability_matrix` chi tiết cho từng AC (Mã AC, Tiêu đề, Mức rủi ro, Danh sách các Test Case bao phủ, Trạng thái `COVERED` / `PARTIAL` / `MISSING`, và Ghi chú góc độ test).
-2. Phát hiện và chỉ rõ các lỗi logic, thiếu sót kịch bản, sai lệch thông số (`semantic_issues`).
+2. Phát hiện và chỉ rõ các lỗi logic, thiếu sót kịch bản, sai lệch thông số (`semantic_issues`), bao gồm bắt buộc rà soát hai loại lỗi mà không công cụ tất định nào khác kiểm tra được:
+   - `Duplicate / Filler Test Case`: Test case không mang thêm giá trị kiểm thử nào so với các case khác (lặp lại ý đồ test dưới tiêu đề/test data khác nhau, hoặc chỉ để "đủ số lượng").
+   - `Scenario-Level Defect`: Kịch bản có `testing_technique` không khớp với thứ mà Test Case thực tế đang kiểm thử, hoặc tên kỹ thuật hàn lâm bị lộ vào `group_functional` / `scenario_title`.
+   - `Fabricated Message / Ungrounded Value`: Test Case assert một câu message hoặc một API sample/field không hề tồn tại trong tài liệu gốc, bài phân tích, hay User Clarifications. BẮT BUỘC yêu cầu Generator xóa giá trị tự bịa và thay bằng câu hỏi làm rõ cho User.
 3. Chấm điểm nghiêm ngặt theo thang điểm 100 (Banking Quality Gate):
    * ĐẠT CHUẨN NGHIỆM THU (PASSED) KHI VÀ CHỈ KHI: Điểm số >= 95/100 và KHÔNG CÓ BẤT KỲ lỗi Critical hay Major nào.
    * NẾU ĐIỂM < 95: BẮT BUỘC liệt kê chi tiết từng lỗi (`semantic_issues`), chỉ rõ Test Case nào bị sai, thiếu kịch bản hay thiếu kỹ thuật gì để Generator sửa lại hoặc viết thêm cho đúng chuẩn.

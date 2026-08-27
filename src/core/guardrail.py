@@ -2,6 +2,7 @@ import re
 from typing import Tuple, Optional
 from pathlib import Path
 from src.integrations.jira_connector import extract_jira_key
+from src.core.prompt_loader import DOMAIN_PACK_KEYWORDS
 from src.utils.file_parsers import is_safe_local_file
 
 
@@ -29,11 +30,9 @@ NONSENSE_PATTERNS = [
 SPEC_INDICATORS = [
     "acceptance criteria", "ac:", "ac1", "ac2", "ac 1", "ac 2", "user story", "given", "when",
     "then", "mô tả", "mục tiêu", "yêu cầu", "endpoint", "request", "response", "payload",
-    "hạn mức", "số tiền", "số dư", "tài khoản", "biểu phí", "quy định", "qđ 2345",
-    "sinh trắc học", "napas", "vietqr", "core banking", "smart contract", "eod", "redzone",
-    "hạch toán", "sổ cái", "phong tỏa", "tất toán", "trích nợ", "post /", "get /", "put /",
-    "patch /", "delete /", "status code", "mã lỗi", "http 200", "http 400", "http 500"
-]
+    "quy định", "post /", "get /", "put /", "patch /", "delete /", "status code", "mã lỗi",
+    "http 200", "http 400", "http 500",
+] + [kw for _, keywords in DOMAIN_PACK_KEYWORDS for kw in keywords]
 
 
 def validate_requirement_input(raw_input: str, file_path: Optional[str] = None) -> Tuple[bool, str, str]:

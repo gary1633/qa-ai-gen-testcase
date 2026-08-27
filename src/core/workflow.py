@@ -7,6 +7,7 @@ from src.agents.requirement_analyst import analyze_requirements
 from src.agents.scenario_designer import design_test_scenarios
 from src.agents.testcase_generator import generate_test_cases
 from src.agents.reviewer import review_and_lint_test_suite
+from src.core.llm import load_qa_rules
 from src.utils.excel_exporter import export_test_cases_to_excel, sanitize_sheet_name
 
 
@@ -19,7 +20,7 @@ def parse_input_node(state: QAWorkflowState) -> Dict[str, Any]:
         "input_raw_text": raw_content,
         "file_type": file_type,
         "review_iteration": 0,
-        "max_review_iterations": state.get("max_review_iterations", 3),
+        "max_review_iterations": state.get("max_review_iterations", load_qa_rules()["max_review_iterations"]),
         "feedback_history": [],
         "logs": [{"node": "parse_input", "status": f"Đã đọc input thành công (loại: {file_type}, độ dài: {len(raw_content)} chars)"}]
     }
@@ -78,7 +79,7 @@ def testcase_generator_node(state: QAWorkflowState) -> Dict[str, Any]:
             issues_txt = "\n".join([f"- [{i.target_tc_id or 'General'}] {i.description} -> Fix: {i.suggested_fix}" for i in state["review_result"].issues])
             latest_feedback += f"\n\nChi tiết lỗi:\n{issues_txt}"
             
-    test_cases = generate_test_cases(
+    gen = generate_test_cases(
         analysis=analysis,
         scenarios=scenarios,
         review_feedback=state.get("review_result"),
@@ -89,8 +90,9 @@ def testcase_generator_node(state: QAWorkflowState) -> Dict[str, Any]:
     )
     
     return {
-        "test_cases": test_cases,
-        "logs": [{"node": "testcase_generator", "status": f"Đã sinh {len(test_cases)} test cases chi tiết (Lần lặp: {state.get('review_iteration', 0) + 1})"}]
+        "test_cases": gen.test_cases,
+        "pending_clarifications": gen.clarification_questions,
+        "logs": [{"node": "testcase_generator", "status": f"Đã sinh {len(gen.test_cases)} test cases chi tiết (Lần lặp: {state.get('review_iteration', 0) + 1}), {len(gen.clarification_questions)} câu hỏi cần làm rõ"}]
     }
 
 
@@ -106,7 +108,9 @@ def reviewer_linter_node(state: QAWorkflowState) -> Dict[str, Any]:
         provider=state.get("llm_provider"),
         model_name=state.get("llm_model_name"),
         base_url=state.get("llm_base_url"),
-        api_key=state.get("llm_api_key")
+        api_key=state.get("llm_api_key"),
+        scenarios=state.get("scenarios"),
+        raw_content=state.get("input_raw_text", "")
     )
     feedback_history = state.get("feedback_history", [])
     feedback_history.append(f"Iteration {current_iter}: Score {review_res.score}/100, Passed={review_res.passed}")
@@ -132,7 +136,8 @@ def export_excel_node(state: QAWorkflowState) -> Dict[str, Any]:
         test_cases=test_cases,
         template_path=template_path,
         output_path=output_path,
-        target_sheet_name=target_sheet
+        target_sheet_name=target_sheet,
+        pending_clarifications=state.get("pending_clarifications") or []
     )
     
     return {
@@ -154,7 +159,7 @@ def should_continue_review(state: QAWorkflowState) -> str:
     """Điều hướng có lặp lại để sửa lỗi hay xuất kết quả."""
     review_res = state.get("review_result")
     current_iter = state.get("review_iteration", 0)
-    max_iter = state.get("max_review_iterations", 3)
+    max_iter = state.get("max_review_iterations", load_qa_rules()["max_review_iterations"])
     
     if review_res and review_res.passed:
         return "export_excel"

@@ -13,10 +13,12 @@ from src.core.models import (
     ReviewIssue,
     TraceabilityItem
 )
-from src.core.linter import lint_test_case, lint_test_suite_coverage
+from src.core.linter import lint_test_case, lint_test_suite_coverage, lint_scenarios
 from src.utils.file_parsers import extract_input_content
 from src.utils.excel_exporter import export_test_cases_to_excel
 from src.core.workflow import build_qa_agentic_graph
+from src.core.llm import load_qa_rules, load_config
+from src.core.prompt_loader import resolve_domain_pack, load_domain_pack
 
 
 def test_file_parser():
@@ -346,9 +348,10 @@ def test_agent_invocations():
                 TestCase(testcase_id="TC 01", group_feature="1. Chặn EOD", group_functional="1.1. Luồng chính", title='Kiểm tra "18:00:00"', preconditions="Active", steps="POST", expected_result="400 CV_043", actual_result="", test_data="{}", creator="QA", test_date="24/08/2026", test_status="Not Test", priority="High", plan_execution="Release", executed_date="", note="AC-01")
             ]
         )
-        test_cases = generate_test_cases(analysis, scenarios, provider="gemini")
+        gen_result = generate_test_cases(analysis, scenarios, provider="gemini")
         assert mock_gen.call_count == 1
         assert "system_prompt" in mock_gen.call_args.kwargs
+        test_cases = gen_result.test_cases
         assert len(test_cases) == 1
 
         mock_rev.return_value = SemanticReviewPayload(
@@ -402,6 +405,176 @@ def test_multi_domain_support():
     assert logistics_analysis.business_domain == "Logistics, Supply Chain & Fleet Tracking"
     print("  -> Logistics Domain verified!")
 
+def test_linter_dead_checks_regression():
+    """
+    D2 regression: bộ test suite Healthcare có 1 rủi ro Critical (RSK-01) chưa được bao phủ
+    và chỉ có duy nhất 1 test case happy-path (mặc định trả về "HTTP Status 200 OK").
+    Trước khi sửa Step 4-5, Linter chỉ phát hiện được 'Technique Under-Coverage (Negative EP)'
+    vì BVA-check và RBT-check đều là dead code (luôn no-op) và Healthcare không có domain rule riêng.
+    """
+    print("\n[7/7] Testing Linter Dead-Checks Regression (BVA / RBT / Domain PHI)...")
+    healthcare_analysis = RequirementAnalysis(
+        feature_name="Tra cứu hồ sơ bệnh án điện tử",
+        banking_domain="Healthcare",
+        acceptance_criteria=[
+            AcceptanceCriterion(ac_id="AC-01", title="Xem hồ sơ bệnh án", description="Bác sĩ xem được hồ sơ bệnh án của bệnh nhân", risk_level="Critical")
+        ],
+        product_risks=[
+            ProductRisk(risk_id="RSK-01", risk_title="Truy cập trái phép hồ sơ bệnh án", risk_level="Critical", linked_ac_id="AC-01")
+        ]
+    )
+    happy_path_case = TestCase()  # Mặc định: title="Test case", expected_result="HTTP Status 200 OK, xử lý thành công."
+    issues = lint_test_suite_coverage(healthcare_analysis, [happy_path_case])
+    issue_types = [i.issue_type for i in issues]
+
+    assert "Technique Under-Coverage (Negative EP)" in issue_types
+    assert "Technique Under-Coverage (BVA)" in issue_types
+    assert "RBT Under-Coverage Violation" in issue_types
+    assert "Missing PHI Access-Control Case" in issue_types
+    print(f"  -> Linter correctly flagged all {len(issue_types)} previously-dead checks: {issue_types}")
+
+
+def test_new_qa_capabilities():
+    """
+    Kiểm chứng trực tiếp 6 năng lực mới của bộ khung Linter/Config đã bổ sung:
+    Assertion-Anchor, Duplicate Detection, Scenario-Level Lint, Live qa_rules, Domain Pack Routing,
+    Phantom AC Reference (TestCase-level Scope Drift Guard).
+    """
+    print("\n[8/8] Testing New QA Capabilities (Assertion-Anchor, Duplicate, Scenario Lint, Live Config, Domain Routing, Phantom AC)...")
+
+    # 1. Assertion-Anchor check (4c): Expected Result đủ dài nhưng KHÔNG có tiêu chí định lượng nào
+    vague_tc = TestCase(expected_result="Hệ thống xử lý xong và hiển thị thông báo cho người dùng biết kết quả")
+    anchor_issues = lint_test_case(vague_tc)
+    assert any(i.issue_type == "Non-Deterministic Expected Result" and "định lượng" in i.description for i in anchor_issues)
+    print("  -> Assertion-Anchor check correctly rejected Expected Result without HTTP/status/schema/số liệu!")
+
+    # 2. Duplicate Test Case check (4d): 2 test case trùng tiêu đề + test data
+    dup_a = TestCase(testcase_id="TC 01", title="Đăng nhập thành công", test_data='{"user": "a"}')
+    dup_b = TestCase(testcase_id="TC 02", title="Đăng nhập thành công", test_data='{"user": "a"}')
+    dup_analysis = RequirementAnalysis(acceptance_criteria=[AcceptanceCriterion(ac_id="AC-01")])
+    dup_issues = lint_test_suite_coverage(dup_analysis, [dup_a, dup_b])
+    assert any(i.issue_type == "Duplicate Test Case" for i in dup_issues)
+    print("  -> Duplicate Test Case check correctly flagged 2 identical test cases!")
+
+    # 3. Scenario-Level Lint (Step 7): phantom AC, thiếu kỹ thuật bắt buộc, rò rỉ tên kỹ thuật, thiếu RBT
+    scenario_analysis = RequirementAnalysis(
+        acceptance_criteria=[AcceptanceCriterion(ac_id="AC-01")],
+        product_risks=[ProductRisk(risk_id="RSK-01", risk_level="Critical")]
+    )
+    leaky_scenario = TestScenario(scenario_id="SC_01", trace_ac_id="AC-99", scenario_title="Kiểm tra BVA giá trị biên", testing_technique="Equivalence Partitioning")
+    scenario_issues = lint_scenarios(scenario_analysis, [leaky_scenario])
+    scenario_issue_types = [i.issue_type for i in scenario_issues]
+    assert "Traceability Gap" in scenario_issue_types  # AC-99 không tồn tại + AC-01 chưa được bao phủ
+    assert "Technique Under-Coverage" in scenario_issue_types  # Thiếu Boundary Value Analysis
+    assert "Format Violation" in scenario_issue_types  # "BVA" rò rỉ vào scenario_title
+    assert "RBT Under-Coverage Violation" in scenario_issue_types  # RSK-01 Critical chưa có scenario trace tới
+    print(f"  -> Scenario-Level Linter correctly flagged {len(scenario_issues)} scenario issues: {scenario_issue_types}")
+
+    # 4. Live qa_rules (Step 3): config.yaml là nguồn thật duy nhất, không hardcode rải rác trong code
+    live_rules = load_qa_rules()
+    yaml_qa_rules = load_config().get("qa_rules", {})
+    assert live_rules["min_review_score"] == yaml_qa_rules["min_review_score"] == 95
+    assert "verify it works" in live_rules["banned_vague_words"]
+    print(f"  -> qa_rules đọc trực tiếp từ config.yaml, min_review_score={live_rules['min_review_score']} (không hardcode)!")
+
+    # 5. Domain Pack Routing (Step 1/5): đúng domain pack theo từ khóa, mặc định 'api-platform' khi không khớp
+    assert resolve_domain_pack("FinTech & Banking (Napas, VietQR)") == "fintech-banking"
+    assert resolve_domain_pack("E-Commerce & Retail (Cart, Checkout)") == "ecommerce-retail"
+    assert resolve_domain_pack("Một tính năng nội bộ không rõ ngành") == "api-platform"
+    assert "Double-Entry" in load_domain_pack("FinTech & Banking")
+    print("  -> Domain Pack routing chọn đúng pack theo từ khóa và fallback 'api-platform' khi không khớp!")
+
+    # 6. Phantom AC Reference at TestCase level (Scope Drift Guard): TC trỏ tới AC không tồn tại trong analysis
+    scope_analysis = RequirementAnalysis(acceptance_criteria=[AcceptanceCriterion(ac_id="AC-01")])
+    onscope_tc = TestCase(testcase_id="TC 01", title="Rút tiền thành công trước EOD", group_feature="1. Chặn rút tiền EOD (AC-01)", note="Trace: AC-01")
+    drifted_tc = TestCase(testcase_id="TC 02", title="Chuyển tiền Napas thành công (AC-99)", group_feature="2. Chuyển tiền Napas (AC-99)", note="Trace: AC-99")
+    drift_issues = lint_test_suite_coverage(scope_analysis, [onscope_tc, drifted_tc])
+    phantom_tc_issues = [i for i in drift_issues if i.issue_type == "Scope Drift / Phantom AC Reference"]
+    assert len(phantom_tc_issues) == 1 and phantom_tc_issues[0].target_tc_id == "TC 02" and "AC-99" in phantom_tc_issues[0].description
+    assert not any(i.issue_type == "Scope Drift / Phantom AC Reference" for i in lint_test_suite_coverage(scope_analysis, [onscope_tc]))
+    print("  -> Phantom AC Reference check correctly flagged Test Case tracing a non-existent AC (Scope Drift)!")
+
+
+def test_clarification_gate():
+    """
+    Kiểm chứng cơ chế Hard-Stop Clarification Gate:
+    - Deterministic detector + gate (Step 1) bắt buộc bật needs_user_clarification khi thiếu API sample / message.
+      Mặc định assume User Story là cho API; nếu tài liệu có yếu tố UI mà không tự nhắc tới API thì bỏ qua nhóm câu hỏi API.
+      Khi là câu chuyện API: bắt buộc rõ CẢ request lẫn response. Message: bắt buộc rõ CẢ luồng thành công lẫn thất bại.
+    - Waiver phrases ("KHÔNG CÓ API" / "KHÔNG CÓ MESSAGE") miễn trừ nhóm câu hỏi tương ứng.
+    - Fabricated-message linter check (Step 4) chỉ flag Critical khi message KHÔNG có căn cứ trong tài liệu gốc.
+    - Generator marker invariant (Step 3): test case đánh dấu PENDING CLARIFICATION nhưng không kèm câu hỏi
+      thì generate_test_cases() phải tự tổng hợp 1 câu hỏi thay thế.
+    """
+    print("\n[9/9] Testing Clarification Gate (Missing API Sample / Message)...")
+    from unittest.mock import patch
+    from src.core.clarification import (
+        detect_missing_artifacts, apply_clarification_gate,
+        MISSING_API_REQUEST_QUESTION, MISSING_API_RESPONSE_QUESTION,
+        MISSING_SUCCESS_MESSAGE_QUESTION, MISSING_ERROR_MESSAGE_QUESTION,
+    )
+    from src.agents.testcase_generator import generate_test_cases, BatchTestSuiteResponse
+
+    # 1. Mặc định: concept của User Story được ASSUME LÀ CHO API -> tài liệu không nhắc UI lẫn API
+    #    vẫn bị hỏi đủ 4 điểm: request, response, message thành công, message lỗi.
+    bare = "Chặn rút tiền trong giờ EOD 18h"
+    assert detect_missing_artifacts(bare) == [
+        MISSING_API_REQUEST_QUESTION, MISSING_API_RESPONSE_QUESTION,
+        MISSING_SUCCESS_MESSAGE_QUESTION, MISSING_ERROR_MESSAGE_QUESTION,
+    ], detect_missing_artifacts(bare)
+
+    # 1b. Tài liệu có yếu tố UI nhưng KHÔNG nhắc tới API -> bỏ qua nhóm câu hỏi API, vẫn hỏi đủ 2 message
+    ui_only = bare + " Yêu cầu hiển thị thông tin trên màn hình ứng dụng."
+    assert detect_missing_artifacts(ui_only) == [MISSING_SUCCESS_MESSAGE_QUESTION, MISSING_ERROR_MESSAGE_QUESTION], detect_missing_artifacts(ui_only)
+
+    # 1c. Tài liệu UI nhưng CÓ nhắc tới việc gọi API -> hỏi lại nhóm API (2) cộng nhóm message (2)
+    ui_with_api = ui_only + " Màn hình gọi API để xử lý giao dịch."
+    assert len(detect_missing_artifacts(ui_with_api)) == 4, detect_missing_artifacts(ui_with_api)
+
+    # 1d. Có request nhưng CHƯA có response -> chỉ còn thiếu response (request đã thỏa)
+    request_only = ui_with_api + ' Gọi POST /api/v1/withdraw body {"amount": 1000}.'
+    assert detect_missing_artifacts(request_only) == [MISSING_API_RESPONSE_QUESTION, MISSING_SUCCESS_MESSAGE_QUESTION, MISSING_ERROR_MESSAGE_QUESTION]
+
+    # 1e. Đủ CẢ request, response, message thành công lẫn message lỗi -> không còn câu hỏi nào
+    full_api = (
+        request_only + ' Response trả về HTTP 200 kèm thông báo "Rút tiền thành công". '
+        'Trường hợp lỗi trả về HTTP 400 mã lỗi CV_043 kèm thông báo "Giao dịch thất bại do tài khoản bị khóa".'
+    )
+    assert detect_missing_artifacts(full_api) == [], detect_missing_artifacts(full_api)
+    assert detect_missing_artifacts(ui_with_api + " KHÔNG CÓ API, KHÔNG CÓ MESSAGE") == []
+
+    gated_default = apply_clarification_gate(RequirementAnalysis(feature_name="X"), bare)
+    assert gated_default.needs_user_clarification is True and len(gated_default.clarification_questions) == 4
+    gated_ui = apply_clarification_gate(RequirementAnalysis(feature_name="Y"), ui_only)
+    assert gated_ui.needs_user_clarification is True and gated_ui.clarification_questions == [MISSING_SUCCESS_MESSAGE_QUESTION, MISSING_ERROR_MESSAGE_QUESTION]
+    print("  -> Deterministic detector requires BOTH request+response and BOTH success+error message; UI-only docs skip the API group; waivers honoured!")
+
+    # 2. Fabricated-message linter check: message bịa đặt bị Critical-flag, message có căn cứ thì sạch
+    msg = "Giao dịch của bạn đã bị từ chối do hệ thống đang khóa"
+    fab_tc = TestCase(testcase_id="TC 01", title="Rút tiền bị chặn (AC-01)", note="Trace: AC-01",
+                       expected_result='HTTP 400, message "' + msg + '"')
+    fab_analysis = RequirementAnalysis(acceptance_criteria=[AcceptanceCriterion(ac_id="AC-01", title="Chặn rút tiền EOD")])
+    bad = [i for i in lint_test_suite_coverage(fab_analysis, [fab_tc], raw_content="Chặn rút tiền trong giờ EOD, trả HTTP 400.")
+           if i.issue_type == "Fabricated Message / Ungrounded Value"]
+    assert len(bad) == 1 and bad[0].severity == "Critical" and bad[0].target_tc_id == "TC 01", bad
+    good = [i for i in lint_test_suite_coverage(fab_analysis, [fab_tc], raw_content='Khi bị chặn, hiển thị message "' + msg + '".')
+            if i.issue_type == "Fabricated Message / Ungrounded Value"]
+    assert good == [], good
+    assert [i for i in lint_test_suite_coverage(fab_analysis, [fab_tc]) if i.issue_type == "Fabricated Message / Ungrounded Value"] == []
+    print("  -> Fabricated-message linter check flags invented messages Critical and clears grounded ones!")
+
+    # 3. Generator marker invariant: PENDING CLARIFICATION marker without a question synthesizes one
+    gen_analysis = RequirementAnalysis(feature_name="Chặn rút tiền EOD", acceptance_criteria=[AcceptanceCriterion(ac_id="AC-01")])
+    gen_scenarios = [TestScenario(scenario_id="SC_01", trace_ac_id="AC-01", group_feature="1. Chặn EOD", group_functional="1.1. Luồng chính")]
+    marked_tc = TestCase(testcase_id="TC 01", title="Rút tiền bị chặn", expected_result="HTTP 400", note="AC-01 | PENDING CLARIFICATION")
+    with patch("src.agents.testcase_generator.invoke_structured_llm") as mock_gen:
+        mock_gen.return_value = BatchTestSuiteResponse(test_cases=[marked_tc], clarification_questions=[])
+        gen_result = generate_test_cases(gen_analysis, gen_scenarios, provider="gemini")
+    assert len(gen_result.clarification_questions) == 1, gen_result.clarification_questions
+    print("  -> Generator marker invariant: PENDING CLARIFICATION without a question synthesizes one!")
+
+
+
 if __name__ == "__main__":
     test_file_parser()
     test_linter()
@@ -409,4 +582,7 @@ if __name__ == "__main__":
     test_graph_compilation()
     test_agent_invocations()
     test_multi_domain_support()
+    test_linter_dead_checks_regression()
+    test_new_qa_capabilities()
+    test_clarification_gate()
     print("\n✅ All component tests PASSED!")

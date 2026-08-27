@@ -4,11 +4,21 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from src.core.models import RequirementAnalysis, TestScenario, TestCase, ReviewResult, ReviewIssue
 from src.core.llm import invoke_structured_llm
-from src.core.prompt_loader import load_prompt
+from src.core.prompt_loader import load_prompt, load_domain_pack, load_composite
 from src.utils.file_parsers import clean_jira_key_from_title
+from src.core.clarification import PENDING_CLARIFICATION_MARKER
 
 class BatchTestSuiteResponse(BaseModel):
     test_cases: List[TestCase] = Field(description="Danh sách test cases chi tiết cho các kịch bản trong lô này")
+    clarification_questions: List[str] = Field(
+        default_factory=list,
+        description="Các câu hỏi BẮT BUỘC phải hỏi lại User khi thiếu API sample, thiếu schema/payload hoặc thiếu câu message/mã lỗi cụ thể. TUYỆT ĐỐI KHÔNG tự bịa giá trị thay cho việc hỏi."
+    )
+
+
+class TestCaseGenerationResult(BaseModel):
+    test_cases: List[TestCase] = Field(default_factory=list)
+    clarification_questions: List[str] = Field(default_factory=list)
 
 
 def _generate_single_batch(
@@ -21,12 +31,13 @@ def _generate_single_batch(
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None
-) -> List[TestCase]:
+) -> BatchTestSuiteResponse:
     """
     Sinh test case cho 1 lô kịch bản (8-10 scenarios).
     Prompt được nạp động từ file Markdown: prompts/03_testcase_generator.md.
     """
-    system_prompt = load_prompt("03_testcase_generator")
+    system_prompt = load_composite("03_testcase_generator", "shared/severity_priority_rubric")
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
 
     scenarios_text = ""
     for idx, sc in enumerate(scenario_batch, start=start_tc_num):
@@ -54,7 +65,12 @@ NGÀY: {today_str}
 TIÊU CHÍ NGHIỆM THU ĐÃ PHÂN TÍCH (BÁM SÁT 100% CÁC QUY TẮC NÀY):
 {ac_text}
 
-HÃY SINH TOÀN BỘ TEST CASE CHI TIẾT 14 CỘT CHO {len(scenario_batch)} KỊCH BẢN SAU ĐÂY:
+================================================================================
+DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ):
+================================================================================
+{domain_pack}
+
+HÃY SINH TOÀN BỘ TEST CASE CHI TIẾT 14 CỘT DỮ LIỆU + 2 DÒNG BANNER PHÂN CẤP CHO {len(scenario_batch)} KỊCH BẢN SAU ĐÂY:
 {scenarios_text}
 
 {feedback_prompt}
@@ -65,7 +81,9 @@ YÊU CẦU QUAN TRỌNG ĐỂ ĐẠT QUALITY GATE >= 95/100:
 3. Gán testcase_id tuần tự từ "TC {start_tc_num:02d}" đến "TC {start_tc_num + len(scenario_batch) - 1:02d}".
 4. Expected Result BẮT BUỘC định lượng rõ ràng: HTTP Status (vd: 200, 400, 403, 409, 504), Response JSON, mã lỗi nghiệp vụ chính xác (vd: CV_043), số dư tài khoản. Tuyệt đối cấm từ ngữ mơ hồ ("kiểm tra ok", "thành công", "chờ một chút").
 5. BẢO TOÀN NGUYÊN VẸN `group_feature` VÀ `group_functional` từ Scenario tương ứng. TUYỆT ĐỐI KHÔNG ĐƯA TÊN KỸ THUẬT HÀN LÂM (như Boundary Value Analysis, BVA, EP...) VÀO TIÊU ĐỀ `group_functional` hay `title`.
-6. NẾU CÓ FEEDBACK TỪ QA REVIEWER: BẮT BUỘC sửa triệt để 100% các lỗi được chỉ ra để đảm bảo bộ test case đạt điểm tối đa >= 95/100!
+6. Cột `note` BẮT BUỘC ghi trace theo đúng định dạng "Trace: AC-xx | RSK-yy | <jira>"; nếu test case triệt tiêu một rủi ro RBT thì PHẢI ghi đúng mã RSK-yy của rủi ro đó.
+7. NẾU CÓ FEEDBACK TỪ QA REVIEWER: BẮT BUỘC sửa triệt để 100% các lỗi được chỉ ra để đảm bảo bộ test case đạt điểm tối đa >= 95/100!
+8. Thiếu API sample / message -> nêu câu hỏi vào clarification_questions và ghi " | PENDING CLARIFICATION" vào note; TUYỆT ĐỐI KHÔNG tự bịa sample hay câu chữ.
 """
     result: BatchTestSuiteResponse = invoke_structured_llm(
         system_prompt=system_prompt,
@@ -77,7 +95,7 @@ YÊU CẦU QUAN TRỌNG ĐỂ ĐẠT QUALITY GATE >= 95/100:
         api_key=api_key,
         temperature=0.1
     )
-    return result.test_cases
+    return result
 
 
 def _generate_supplementary_testcases(
@@ -89,26 +107,34 @@ def _generate_supplementary_testcases(
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None
-) -> List[TestCase]:
+) -> BatchTestSuiteResponse:
     """Sinh bổ sung các Test Case đặc thù khi Reviewer phát hiện thiếu độ bao phủ hoặc thiếu kỹ thuật."""
-    system_prompt = load_prompt("03_testcase_generator")
+    system_prompt = load_composite("03_testcase_generator", "shared/severity_priority_rubric")
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
     issues_desc = "\n".join([f"- {iss.issue_type} ({iss.severity}): {iss.description} -> Yêu cầu: {iss.suggested_fix}" for iss in coverage_issues])
-    
+
     user_prompt = f"""TÍNH NĂNG: {analysis.feature_name}
 PHÂN HỆ: {analysis.banking_domain}
 MỤC TIÊU NGHIỆP VỤ: {analysis.business_overview or analysis.business_objective}
 BẤT BIẾN: {analysis.banking_invariants}
 NGÀY: {today_str}
 
+================================================================================
+DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ):
+================================================================================
+{domain_pack}
+
 BỘ TEST SUITE HIỆN TẠI ĐANG THIẾU CÁC KỊCH BẢN KIỂM THỬ QUAN TRỌNG SAU (CẦN BỔ SUNG GẤP ĐỂ ĐẠT QUALITY GATE >= 95/100):
 {issues_desc}
 
 YÊU CẦU THỰC HIỆN:
-1. Hãy sinh BỔ SUNG ĐẦY ĐỦ các test case chi tiết 14 cột tương ứng để triệt tiêu 100% các thiếu sót trên.
+1. Hãy sinh BỔ SUNG ĐẦY ĐỦ các test case chi tiết 14 cột dữ liệu + 2 dòng banner phân cấp tương ứng để triệt tiêu 100% các thiếu sót trên.
 2. Bắt đầu từ mã: "TC {start_tc_num:02d}".
 3. Đặt tiêu đề theo đúng chuẩn: "Kiểm tra ... thành công khi ..." / "Kiểm tra ... không thành công khi ...", BỌC DẤU NGOẶC KÉP `""` CHO TÊN TRƯỜNG VÀ GIÁ TRỊ.
 4. Expected Result định lượng rõ ràng: HTTP Status, JSON response, mã lỗi nghiệp vụ, biến động số dư.
 5. Nhúng trực tiếp Body JSON vào bước thực hiện (steps).
+6. Cột `note` BẮT BUỘC ghi trace theo đúng định dạng "Trace: AC-xx | RSK-yy | <jira>"; nếu test case triệt tiêu một rủi ro RBT thì PHẢI ghi đúng mã RSK-yy của rủi ro đó.
+7. Thiếu API sample / message -> nêu câu hỏi vào clarification_questions và ghi " | PENDING CLARIFICATION" vào note; TUYỆT ĐỐI KHÔNG tự bịa sample hay câu chữ.
 """
     result: BatchTestSuiteResponse = invoke_structured_llm(
         system_prompt=system_prompt,
@@ -120,7 +146,7 @@ YÊU CẦU THỰC HIỆN:
         api_key=api_key,
         temperature=0.1
     )
-    return result.test_cases
+    return result
 
 
 def generate_test_cases(
@@ -132,7 +158,7 @@ def generate_test_cases(
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     batch_size: int = 10
-) -> List[TestCase]:
+) -> TestCaseGenerationResult:
     """
     Sinh toàn bộ test cases chi tiết theo cơ chế PACED BATCHING:
     Gộp tối ưu 8-10 kịch bản mỗi lô và thực thi tuần tự có giãn cách để KHÔNG BỊ TRÀN RATE LIMIT (429) của gói Free Tier.
@@ -156,6 +182,7 @@ def generate_test_cases(
         feedback_prompt = "\n" + "\n".join(feedback_lines) + "\n"
     
     all_test_cases: List[TestCase] = []
+    all_questions: List[str] = []
     
     total_scenarios = len(scenarios)
     chunks = [scenarios[i:i + batch_size] for i in range(0, total_scenarios, batch_size)]
@@ -165,7 +192,7 @@ def generate_test_cases(
         if chunk_idx > 0:
             time.sleep(2.5)
 
-        batch_cases = _generate_single_batch(
+        batch = _generate_single_batch(
             analysis=analysis,
             scenario_batch=chunk,
             start_tc_num=start_tc_num,
@@ -176,6 +203,7 @@ def generate_test_cases(
             base_url=base_url,
             api_key=api_key
         )
+        batch_cases = batch.test_cases
         # Bảo toàn chính xác group_feature, group_functional và Note Traceability từ Scenarios
         for sc, tc in zip(chunk, batch_cases):
             if not tc.group_feature or len(tc.group_feature.strip()) < 3:
@@ -194,6 +222,7 @@ def generate_test_cases(
                 tc.note = trace_str
 
         all_test_cases.extend(batch_cases)
+        all_questions.extend(q for q in batch.clarification_questions if q not in all_questions)
 
     # NẾU CÓ FEEDBACK THIẾU ĐỘ BAO PHỦ -> TỰ ĐỘNG SINH BỔ SUNG TEST CASES
     if review_feedback and not review_feedback.passed:
@@ -203,7 +232,7 @@ def generate_test_cases(
         ]
         if coverage_issues:
             time.sleep(2.5)
-            supp_cases = _generate_supplementary_testcases(
+            supp = _generate_supplementary_testcases(
                 analysis=analysis,
                 coverage_issues=coverage_issues,
                 start_tc_num=len(all_test_cases) + 1,
@@ -213,11 +242,17 @@ def generate_test_cases(
                 base_url=base_url,
                 api_key=api_key
             )
-            all_test_cases.extend(supp_cases)
+            all_test_cases.extend(supp.test_cases)
+            all_questions.extend(q for q in supp.clarification_questions if q not in all_questions)
 
     # Đảm bảo mã testcase_id liên tục, duy nhất và title không chứa mã Jira ticket
     for idx, tc in enumerate(all_test_cases, start=1):
         tc.testcase_id = f"TC {idx:02d}"
         tc.title = clean_jira_key_from_title(tc.title)
 
-    return all_test_cases
+    if any(PENDING_CLARIFICATION_MARKER in (tc.note or "") for tc in all_test_cases) and not all_questions:
+        all_questions.append(
+            "Có test case được đánh dấu PENDING CLARIFICATION nhưng chưa nêu câu hỏi cụ thể. "
+            "Vui lòng xác nhận API sample / message chính xác cho các test case này."
+        )
+    return TestCaseGenerationResult(test_cases=all_test_cases, clarification_questions=all_questions)

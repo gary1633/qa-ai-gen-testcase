@@ -29,6 +29,7 @@ class QAWorkflowState(TypedDict, total=False):
     requirement_analysis: Optional[RequirementAnalysis]
     scenarios: List[TestScenario]
     test_cases: List[TestCase]
+    pending_clarifications: List[str]
     review_result: Optional[ReviewResult]
     
     # Workflow Loop & Quality Control

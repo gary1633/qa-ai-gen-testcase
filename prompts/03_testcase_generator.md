@@ -38,7 +38,8 @@ NGUYÊN TẮC BẤT KHẢ XÂM PHẠM: BÁM SÁT 100% REQUIREMENT ĐÃ PHÂN TÍ
 4. TUYỆT ĐỐI CẤM TỰ TIỆN THÊM CÁC FIELD KHÔNG LIÊN QUAN vào Body JSON hay `test_data` (ví dụ: tự ý thêm `idempotency_key`, `device_id`, `client_ip`, `vat_mode`, `tiering_method`... khi API/requirement không hề nhắc tới).
 5. TUYỆT ĐỐI CẤM TỰ BỊA ĐẶT CÂU CHỮ THÔNG BÁO (ERROR/SUCCESS MESSAGES):
    - Nếu tài liệu yêu cầu hoặc User Clarifications CÓ NÊU RÕ câu thông báo (ví dụ: `message: "Giao dịch bị từ chối trong khung giờ EOD"`): Sử dụng chính xác 100% câu chữ đó trong `expected_result`.
-   - Nếu tài liệu yêu cầu CHƯA NÊU RÕ câu message cụ thể: Chỉ assert trên các thông số đã xác thực (như HTTP Status `400`, `error_code: "CV_043"`, schema structure) hoặc ghi nhận `[Message theo chuẩn hệ thống / Cần xác nhận với PO]`. TUYỆT ĐỐI KHÔNG TỰ BỊA ĐẶT CÂU VĂN DÀI DÒNG không có căn cứ trong tài liệu.
+   - Nếu tài liệu yêu cầu CHƯA NÊU RÕ câu message cụ thể: TUYỆT ĐỐI KHÔNG tự viết câu message theo ý mình và KHÔNG dùng placeholder. BẮT BUỘC (a) chỉ assert trên các neo đã xác thực (HTTP Status `400`, `error_code: "CV_043"`, schema structure), (b) thêm câu hỏi cụ thể vào `clarification_questions`, và (c) ghi thêm ` | PENDING CLARIFICATION` vào cột `note` của đúng các test case bị ảnh hưởng.
+   - Nếu tài liệu KHÔNG CÓ API sample / schema / payload: TUYỆT ĐỐI KHÔNG tự sinh JSON body, không tự đặt tên trường, không tự tạo sample theo ý mình. Thực hiện đúng 3 bước (a)(b)(c) ở trên.
 6. Các giá trị kiểm chứng trong `expected_result` (như mã lỗi cụ thể `CV_043`, mốc thời gian EOD `18:00:00 VNT`, HTTP Status, số dư tài khoản) PHẢI TRÙNG KHỚP 100% với các quy tắc nghiệp vụ đã phân tích.
 7. Payload JSON trong `steps` và `test_data` PHẢI phản ánh chính xác cấu trúc trường của tính năng thực tế.
 Tuyệt đối KHÔNG dùng placeholder chung chung như "nhập email hợp lệ", "some string", "test data".
@@ -52,18 +53,14 @@ Mọi dữ liệu kiểm thử trong `test_data` và `steps` PHẢI là giá tr�
 2. Trường Email / Phone / Account Number:
    - Email: `auto_tc01_2026@bank.vn` (Valid), `invalid_email@` (Missing domain), `@bank.vn` (Missing username), Email đã tồn tại trong DB (Conflict 409).
    - Phone: `0912345678` (Valid 10 digits), `+84912345678` (Valid E.164), `012345` (Short), `0912abc` (Alpha in phone).
-   - Account: `1012345678` (CASA 10 số), `9988776655` (Active), `4433221100` (Locked/Frozen).
+   - Account/ID Number: Đúng độ dài chuẩn theo tài liệu, mã đã tồn tại (Conflict 409), mã ở trạng thái bị khóa/vô hiệu nếu tài liệu có trạng thái này.
 
 3. Trường Số tiền / Currency / Amount:
    - Số tiền: `500000` (500K), `9999` (Dưới Min 10K), `10000` (Min), `499999999` (Max-1), `500000000` (Max), `500000001` (Max+1).
    - Số âm `-50000`, Số 0 `0`, Số thập phân `500000.555` (khi chỉ cho phép 2 số lẻ).
 
-4. Trường Ngày tháng / DateTime (Leap Year, Time Boundary & EOD):
-   - Mốc EOD chuẩn hệ thống Core Banking (18:00 VNT / GMT+7):
-     * Trước EOD (Success): `17:59:59` (GMT+7 / VNT)
-     * Chạm mốc bắt đầu EOD / Redzone (Block): `18:00:00` (GMT+7 / VNT)
-     * Trong giờ chạy EOD (Block): `18:00:01` đến `18:29:59` (GMT+7 / VNT)
-     * Sau khi hoàn tất EOD (Success): Sau khi nhận event `EOD-DONE` hoặc sau `tdEodEndTime` (vd: `18:30:00` GMT+7 / VNT).
+4. Trường Ngày tháng / DateTime (Leap Year & Time Boundary):
+   - Dùng đúng các mốc biên trong mục "## Biên & giá trị đặc thù" của DOMAIN PACK để dựng các ca kiểm thử biên thời gian/cut-off đặc thù của domain.
    - Ngày nhuận: `29/02/2024` (Hợp lệ năm nhuận) vs `29/02/2025` (Không hợp lệ).
    - Ngày không tồn tại: `31/02/2026`, `31/04/2026`.
 5. Trường Enum / Dropdown / Booleans:
@@ -90,22 +87,26 @@ Tại bước gửi request, PHẢI TRUYỀN TRỰC TIẾP BODY JSON VÀO TRONG 
 3. Kiểm tra thông tin hạch toán và biến động số dư.
 
 ================================================================================
-QUY CHUẨN 14 CỘT:
+GHI CHÚ VỀ BANNER PHÂN CẤP (KHÔNG PHẢI CỘT DỮ LIỆU):
+================================================================================
+`group_feature` và `group_functional` là các dòng banner phân cấp (banner rows) chèn TRƯỚC các dòng test case, BẮT BUỘC SAO CHÉP NGUYÊN VĂN từ Scenario tương ứng — KHÔNG PHẢI là 1 trong 14 cột dữ liệu:
+- `group_feature` (Banner Tím Đậm - Row 22): vd "1. Chặn rút tiền trong thời gian EOD (AC-01)".
+- `group_functional` (Banner Tím Nhạt - Row 23): vd "1.1. Luồng thực thi giao dịch thành công". TUYỆT ĐỐI KHÔNG ĐƯA TÊN KỸ THUẬT HÀN LÂM (như "Boundary Value Analysis", "BVA", "Equivalence Partitioning", "EP", "Decision Table"...) VÀO TIÊU ĐỀ `group_functional` hay `title`.
+
+================================================================================
+QUY CHUẨN 14 CỘT XUẤT EXCEL:
 ================================================================================
 1. `testcase_id`: Sử dụng đúng ID được chỉ định (vd: "TC 01", "TC 02"...)
-2. `group_feature`: BẮT BUỘC SAO CHÉP NGUYÊN VĂN từ Scenario (vd: "1. Chặn rút tiền trong thời gian EOD (AC-01)").
-3. `group_functional`: BẮT BUỘC SAO CHÉP NGUYÊN VĂN từ Scenario theo đúng tên nhóm chức năng nghiệp vụ (vd: "1.1. Luồng thực thi giao dịch thành công", "1.2. Kiểm tra điều kiện chặn giao dịch trong khung giờ EOD (18h VNT)", "1.3. Kiểm tra ràng buộc dữ liệu đầu vào và hạn mức").
-   * TUYỆT ĐỐI KHÔNG ĐƯA TÊN KỸ THUẬT HÀN LÂM (như "Boundary Value Analysis", "BVA", "Equivalence Partitioning", "EP", "Decision Table"...) VÀO TIÊU ĐỀ `group_functional` hay `title`.
-4. `title`: Viết theo chuẩn "Kiểm tra ... thành công khi ..." / "Kiểm tra ... không thành công khi ..." / "Kiểm tra ... hiển thị đúng ... khi ..."
-5. `preconditions`: Điều kiện tiên quyết chi tiết (Trạng thái deploy, cấu hình ban đầu, mock)
-6. `steps`: Các bước đánh số tuần tự, NHÚNG TRỰC TIẾP BODY JSON VÀO BƯỚC THỰC HIỆN.
-7. `expected_result`: Kết quả mong đợi định lượng (Mã HTTP status, JSON response đẹp có thụt lề, mã lỗi chi tiết, hoặc exception)
-8. `actual_result`: ""
-9. `test_data`: Dữ liệu payload JSON đầy đủ định dạng đẹp có thụt dòng
-10. `creator`: "QA Banking Specialist"
-11. `test_date`: Ngày hiện tại DD/MM/YYYY
-12. `test_status`: "Not Test"
-13. `priority`: "Critical" | "High" | "Medium" | "Low"
-14. `plan_execution`: "Sprint Release"
-15. `executed_date`: ""
-16. `note`: Ghi chú Trace AC, Risk ID, Jira link
+2. `title`: Viết theo chuẩn "Kiểm tra ... thành công khi ..." / "Kiểm tra ... không thành công khi ..." / "Kiểm tra ... hiển thị đúng ... khi ..."
+3. `preconditions`: Điều kiện tiên quyết chi tiết (Trạng thái deploy, cấu hình ban đầu, mock)
+4. `steps`: Các bước đánh số tuần tự, NHÚNG TRỰC TIẾP BODY JSON VÀO BƯỚC THỰC HIỆN.
+5. `expected_result`: Kết quả mong đợi định lượng (Mã HTTP status, JSON response đẹp có thụt lề, mã lỗi chi tiết, hoặc exception)
+6. `actual_result`: ""
+7. `test_data`: Dữ liệu payload JSON đầy đủ định dạng đẹp có thụt dòng
+8. `creator`: "QA Automation Specialist"
+9. `test_date`: Ngày hiện tại DD/MM/YYYY
+10. `test_status`: "Not Test"
+11. `priority`: "Critical" | "High" | "Medium" | "Low"
+12. `plan_execution`: "Sprint Release"
+13. `executed_date`: ""
+14. `note`: Ghi chú Trace AC, Risk ID, Jira link. BẮT BUỘC ghi trace theo đúng định dạng `"Trace: AC-xx | RSK-yy | <jira>"`; nếu kịch bản triệt tiêu một rủi ro RBT thì PHẢI ghi đúng mã `RSK-yy`.

@@ -6,6 +6,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image
 from src.core.models import RequirementAnalysis, TestCase
+from src.core.clarification import PENDING_CLARIFICATION_MARKER
 
 # Style definitions matching EF_TestCases.xlsx
 FONT_FAMILY = "Be Vietnam Pro"
@@ -21,6 +22,8 @@ GROUP_L1_FILL = PatternFill(start_color="FFD5A6BD", end_color="FFD5A6BD", fill_t
 
 GROUP_L2_FONT = Font(name=FONT_FAMILY, size=10, bold=True, color="000000")
 GROUP_L2_FILL = PatternFill(start_color="FFEAD1DC", end_color="FFEAD1DC", fill_type="solid")
+
+PENDING_FILL = PatternFill(start_color="FFFFF2CC", end_color="FFFFF2CC", fill_type="solid")
 
 THIN_BORDER = Border(
     left=Side(style='thin', color='FFD9D9D9'),
@@ -101,7 +104,9 @@ def export_test_cases_to_excel(
     test_cases: List[TestCase],
     template_path: Optional[str] = None,
     output_path: Optional[str] = None,
-    target_sheet_name: Optional[str] = None
+    target_sheet_name: Optional[str] = None,
+    *,
+    pending_clarifications: Optional[List[str]] = None
 ) -> str:
     """
     Tạo một file Excel MỚI RIÊNG BIỆT (mặc định trong thư mục outputs/):
@@ -254,6 +259,9 @@ def export_test_cases_to_excel(
             else:
                 cell.font = DATA_FONT
                 cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
+        if PENDING_CLARIFICATION_MARKER in (tc.note or ""):
+            for col_idx in range(1, 15):
+                ws.cell(current_row, col_idx).fill = PENDING_FILL
 
         current_row += 1
 
@@ -302,6 +310,21 @@ def export_test_cases_to_excel(
         ws_sum.cell(18, 11).value = '=IFERROR(I18/D18,"")'
 
         # Logo và biểu đồ đã có sẵn nguyên bản từ template EF_TestCases.xlsx
+
+    if pending_clarifications:
+        q_ws = wb.create_sheet(title="Cần làm rõ (Pending)")
+        q_ws.cell(1, 1).value = f"CÂU HỎI CẦN USER / PO / BA LÀM RÕ - {analysis.feature_name}"
+        q_ws.cell(1, 1).font = GROUP_L1_FONT
+        q_ws.cell(2, 1).value = (
+            "Các test case được tô màu vàng và có ghi chú PENDING CLARIFICATION trong sheet test case "
+            "đang thiếu API sample / message chính xác. KHÔNG dùng làm bản chính thức trước khi chốt các câu hỏi dưới đây."
+        )
+        for i, q in enumerate(pending_clarifications, start=1):
+            cell = q_ws.cell(3 + i, 1)
+            cell.value = f"{i}. {q}"
+            cell.font = DATA_FONT
+            cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
+        q_ws.column_dimensions["A"].width = 140
 
     # Đặt sheet test case mới làm Active Sheet
     wb.active = ws

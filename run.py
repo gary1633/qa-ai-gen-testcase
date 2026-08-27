@@ -309,6 +309,19 @@ def main():
             if accumulated_state.get("review_result"):
                 display_review_results(accumulated_state["review_result"])
 
+            pending = accumulated_state.get("pending_clarifications") or []
+            if pending:
+                q_txt = "\n".join([f"  [bold yellow]{i}.[/bold yellow] {q}" for i, q in enumerate(pending, 1)])
+                console.print(Panel(
+                    f"[bold red]⚠️ CÒN {len(pending)} ĐIỂM CHƯA CÓ DỮ KIỆN (API SAMPLE / MESSAGE) - AGENT KHÔNG TỰ BỊA:[/bold red]\n\n"
+                    f"{q_txt}\n\n"
+                    f"[dim]Các test case bị ảnh hưởng đã được tô vàng và ghi chú PENDING CLARIFICATION.\n"
+                    f"Câu hỏi cũng được ghi trong sheet 'Cần làm rõ (Pending)' của file Excel.\n"
+                    f"Chạy lại kèm -e \"<câu trả lời>\" để sinh lại test case với dữ kiện đầy đủ.[/dim]",
+                    title="[bold red]❓ Câu Hỏi Cần Làm Rõ (Sinh Test Case)[/bold red]",
+                    border_style="red"
+                ))
+
             out_path = accumulated_state.get("output_excel_path")
             if out_path:
                 console.print(Panel.fit(

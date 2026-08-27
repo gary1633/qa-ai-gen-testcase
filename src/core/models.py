@@ -36,8 +36,8 @@ class AcceptanceCriterion(BaseModel):
 
 
 class RequirementAnalysis(BaseModel):
-    feature_name: str = Field(default="Tính năng Ngân hàng", description="Tên tính năng hoặc User Story")
-    app_name: str = Field(default="Core TM", description="Tên ứng dụng kiểm tra")
+    feature_name: str = Field(default="Tính năng cần kiểm thử", description="Tên tính năng hoặc User Story")
+    app_name: str = Field(default="Ứng dụng cần kiểm thử", description="Tên ứng dụng kiểm tra")
     version: str = Field(default="0.0.1", description="Phiên bản kiểm tra")
     jira_or_doc_link: str = Field(default="", description="Link tài liệu hoặc Jira Ticket")
     business_overview: str = Field(default="", description="Tóm tắt nghiệp vụ và mục tiêu tính năng")

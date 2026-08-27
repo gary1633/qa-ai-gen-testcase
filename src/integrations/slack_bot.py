@@ -125,13 +125,16 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
         current_iter = 0
         review_result = None
         test_cases = []
+        pending_clarifications: List[str] = []
 
         while current_iter < max_iterations:
-            test_cases = generate_test_cases(
+            gen = generate_test_cases(
                 analysis=analysis,
                 scenarios=scenarios,
                 review_feedback=review_result
             )
+            test_cases = gen.test_cases
+            pending_clarifications = gen.clarification_questions
             
             steps[2] = f"• ✅ *[3/5] Node 3: Đã sinh {len(test_cases)} Test Cases chi tiết* (Lần {current_iter + 1})"
             steps[3] = f"• ⏳ *[4/5] Node 4: QA Quality Gate & Linter đang thẩm định chất lượng (Vòng {current_iter + 1}/{max_iterations})...*"
@@ -140,7 +143,8 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
             # --- NODE 4: Reviewer & Linter ---
             review_result = review_and_lint_test_suite(
                 analysis=analysis,
-                test_cases=test_cases
+                test_cases=test_cases,
+                raw_content=content
             )
 
             if review_result.passed:
@@ -160,7 +164,8 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
         output_excel_path = export_test_cases_to_excel(
             analysis=analysis,
             test_cases=test_cases,
-            template_path="EF_TestCases.xlsx"
+            template_path="EF_TestCases.xlsx",
+            pending_clarifications=pending_clarifications
         )
 
         steps[4] = f"• ✅ *[5/5] Node 5: Đã xuất file Excel thành công!*"
@@ -169,6 +174,19 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
             "\n".join(steps)
         )
         client.chat_update(channel=channel_id, ts=progress_ts, text=final_summary_text)
+
+        if pending_clarifications:
+            q_mrkdwn = "\n".join([f"*{i}.* {q}" for i, q in enumerate(pending_clarifications, 1)])
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=(
+                    f"⚠️ *Còn {len(pending_clarifications)} điểm chưa có dữ kiện (API sample / message) - Agent KHÔNG tự bịa:*\n"
+                    f"{q_mrkdwn}\n\n"
+                    "_Các test case bị ảnh hưởng đã tô vàng & ghi chú PENDING CLARIFICATION. "
+                    "Tag bot kèm thông tin bổ sung để sinh lại đầy đủ._"
+                )
+            )
 
         # 4. Tạo tin nhắn tổng hợp Block Kit
         blocks = [

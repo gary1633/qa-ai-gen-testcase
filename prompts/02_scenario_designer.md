@@ -37,13 +37,8 @@ HỆ THỐNG CÁC KỸ THUẬT KIỂM THỬ BẮT BUỘC ÁP DỤNG:
      * Chồng lấn dải giá trị (Overlapping bands: Dải 1 từ 0-10M, Dải 2 từ 9M-20M).
      * Hở dải giá trị (Gap in bands: Dải 1 từ 0-10M, Dải 2 từ 11M-20M -> thiếu khoảng 10M - 11M).
      * Dải cuối cùng bắt buộc `max = null` (Test trường hợp dải cuối `max != null` để kiểm tra validation).
-   - Biên Thời gian & Redzone EOD (Time & EOD Cut-off BVA):
-     * MỐC THỜI GIAN CHUẨN EOD: Hệ thống Core Banking quy định EOD (End of Day) bắt đầu lúc **18:00 VNT (18:00:00 GMT+7)**.
-     * Bộ ca kiểm thử BVA thời gian EOD:
-       1. Trước EOD: `17:59:59 VNT` -> Giao dịch thành công bình thường.
-       2. Bắt đầu EOD (Chạm biên): `18:00:00 VNT` -> Bị chặn giao dịch (Redzone), trả lỗi từ chối trong giờ EOD.
-       3. Trong giờ EOD: `18:00:01 VNT` đến trước `tdEodEndTime` -> Bị chặn giao dịch.
-       4. Sau khi kết thúc EOD: Nhận event `EOD-DONE` hoặc vượt qua `tdEodEndTime` -> Hệ thống mở lại, giao dịch thành công.
+   - Biên Thời gian & Trạng thái Cắt lát (Time & Cut-off BVA):
+     * Áp dụng đúng các mốc thời gian cắt lát (cut-off) và cửa sổ trạng thái đặc thù được nêu tại mục "## Biên & giá trị đặc thù" của DOMAIN PACK bên dưới. TUYỆT ĐỐI KHÔNG áp dụng mốc thời gian của domain khác nếu tài liệu không thuộc domain đó.
 3. BẢNG QUYẾT ĐỊNH & THUẬT TOÁN PAIRWISE COMBINATORIAL (DECISION TABLE & PAIRWISE TESTING):
    - Khi tính năng có nhiều chiều điều kiện (Dimensions: Loại KH x Loại tài khoản x Kênh x Trạng thái):
      * Thay vì Full Cartesian quá lớn, áp dụng PAIRWISE COMBINATORIAL để rút gọn số bộ kết hợp tối ưu (16 - 20 combos) nhưng đảm bảo 100% các cặp giá trị (2-way combinations) đều được kiểm thử.
@@ -54,14 +49,9 @@ HỆ THỐNG CÁC KỸ THUẬT KIỂM THỬ BẮT BUỘC ÁP DỤNG:
        - Dimension 4: Khung giờ & Trạng thái (Trong giờ, Ngoài giờ, Nghỉ lễ, Tài khoản Active/Locked)
 
 4. KIỂM THỬ CHUYỂN ĐỔI TRẠNG THÁI VÒNG ĐỜI (STATE TRANSITION TESTING - STT):
-   - Vòng đời hợp lệ (Valid Transitions):
-     * `DRAFT` -> `DEPLOYED` / `ACTIVE` -> `PAUSED` / `INACTIVE` -> `DEPRECATED` / `CLOSED`.
-   - Chuyển trạng thái bất hợp pháp (Invalid / Forbidden Transitions):
-     * Cố gắng kích hoạt hợp đồng đang `CLOSED`.
-     * Cố gắng chỉnh sửa cấu hình Global Params khi Smart Contract đã `ACTIVE` mà chưa nâng version.
-     * Giao dịch trên tài khoản đang bị `FROZEN` hoặc `BLOCKED`.
-   - Vòng đời Hooks & Scheduled Events:
-     * Hook tạo lịch chạy khi mở tài khoản -> Sự kiện định kỳ kích hoạt vào ngày 01 hàng tháng -> Hook tất toán tài khoản hủy lịch chạy.
+   - Vòng đời hợp lệ (Valid Transitions): Xác định đúng chuỗi trạng thái hợp lệ của đối tượng nghiệp vụ (vd: `DRAFT -> ACTIVE -> PAUSED -> CLOSED`) theo đúng mục "## Máy trạng thái" của DOMAIN PACK bên dưới.
+   - Chuyển trạng thái bất hợp pháp (Invalid / Forbidden Transitions): Thử các transition bị cấm rõ ràng trong DOMAIN PACK hoặc tài liệu yêu cầu (vd: thao tác trên đối tượng đã đóng/khóa).
+   - Vòng đời Hooks & Scheduled Events: CHỈ áp dụng khi tài liệu yêu cầu hoặc DOMAIN PACK có nêu rõ cơ chế lịch chạy/cron/hook tự động.
 
 5. KIỂM THỬ ĐUA TRANH, TRÙNG LẶP & CONCURRENCY (CONDITIONAL IDEMPOTENCY & RACE CONDITION):
    - Kiểm thử Idempotency Key: CHỈ ÁP DỤNG KHI tài liệu yêu cầu hoặc API spec có định nghĩa trường/header `idempotency_key` (hoặc luồng thanh toán chuyển tiền có cơ chế này). Gửi 2 request có cùng `idempotency_key` -> Request 2 không bị trừ tiền 2 lần, trả về kết quả an toàn.
@@ -69,15 +59,14 @@ HỆ THỐNG CÁC KỸ THUẬT KIỂM THỬ BẮT BUỘC ÁP DỤNG:
    - Re-deploy / Re-register: Deploy lại cấu hình không được tạo duplicate scheduled events trong DB.
    *(Lưu ý quan trọng: KHÔNG tự động gán ép trường `idempotency_key` vào các API truy vấn GET, cấu hình tham số hoặc các luồng không có cơ chế này).*
 6. ĐOÁN LỖI, TIÊM LỖI & KHẢ NĂNG PHỤC HỒI (ERROR GUESSING & FAULT INJECTION):
-   - Gateway / Network Timeout: Giả lập bên thứ 3 (Napas / Core Banking) timeout HTTP 504 -> Hệ thống chuyển trạng thái `PENDING_RECONCILIATION` an toàn, không làm thất thoát tiền.
-   - Transaction Rollback on Failure: Khi hook tạo lịch chạy hoặc hạch toán phụ phí bị lỗi giữa chừng, toàn bộ transaction chính phải rollback hoàn toàn.
+   - Gateway / Network Timeout: Giả lập bên thứ 3 timeout HTTP 504 -> Hệ thống chuyển sang trạng thái an toàn (retry/pending) theo đúng mục "## Máy trạng thái" của DOMAIN PACK, không làm thất thoát dữ liệu/tiền.
+   - Transaction Rollback on Failure: Khi một bước xử lý phụ (hook, tính phí, ghi log) bị lỗi giữa chừng, toàn bộ transaction chính phải rollback hoàn toàn.
    - Malformed JSON / Broken Payload: Gửi chuỗi JSON thiếu ngoặc nhọn, escape ký tự sai, gửi payload rỗng `{}`.
 
-7. ĐỘ CHÍNH XÁC TÍNH TOÁN, LÀM TRÒN & PHÁP CHẾ (FINANCIAL CALCULATION & CONDITIONAL COMPLIANCE):
-   - Quy tắc làm tròn Banker's Rounding (Round-half-even) vs Round-half-up.
-   - Số ngày tính lãi: 365 ngày vs 366 ngày (Năm nhuận - Leap Year boundary).
-   - Tách bạch Thuế VAT: Kiểm tra tính đúng tiền gốc, tiền phí NET, tiền thuế VAT (8%, 10%), và tổng trừ tiền trên tài khoản.
-   - Tuân thủ Sinh trắc học / Quyết định 2345: CHỈ áp dụng khi tài liệu yêu cầu CÓ ĐỀ CẬP RÕ đến luồng xác thực sinh trắc học hoặc tính năng thanh toán người dùng trên App. KHÔNG áp dụng cho các API backend thuần túy.
+7. ĐỘ CHÍNH XÁC TÍNH TOÁN & LÀM TRÒN (CALCULATION PRECISION & CONDITIONAL ROUNDING):
+   - CHỈ kiểm thử công thức tính toán, quy tắc làm tròn và thuế/phí khi tài liệu yêu cầu hoặc DOMAIN PACK có nêu rõ.
+   - Khi có áp dụng: kiểm tra công thức tổng tiền/phí, quy tắc làm tròn (banker's rounding, round-half-up, truncate), và tách bạch các thành phần thuế/phí theo đúng số liệu tài liệu công bố.
+   - Tuân thủ pháp chế (Sinh trắc học, PCI-DSS, HIPAA...): CHỈ áp dụng khi tài liệu yêu cầu CÓ ĐỀ CẬP RÕ, theo đúng mục "## Tuân thủ & pháp chế" của DOMAIN PACK. KHÔNG áp dụng cho các API backend thuần túy không liên quan.
 
 8. KIỂM THỬ MA TRẬN API & PHÂN QUYỀN (API FUNCTIONAL & RBAC MATRIX):
    - Dimension 1: Happy Path (200/201, đúng schema, đúng response body).

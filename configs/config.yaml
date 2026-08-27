@@ -6,7 +6,7 @@ model:
   max_tokens: 8192
 
 qa_rules:
-  min_review_score: 85
+  min_review_score: 95
   max_review_iterations: 3
   strict_assertion_required: true
   banned_vague_words:
@@ -17,6 +17,8 @@ qa_rules:
     - "hoạt động bình thường"
     - "kiểm tra xem có hoạt động không"
     - "chờ một chút"
+    - "kiểm tra ok"
+    - "thông báo tương ứng"
 
 excel:
   template_path: "EF_TestCases.xlsx"   # Template chuẩn có logo và biểu đồ

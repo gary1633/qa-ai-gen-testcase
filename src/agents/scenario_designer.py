@@ -2,7 +2,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from src.core.models import RequirementAnalysis, TestScenario
 from src.core.llm import invoke_structured_llm
-from src.core.prompt_loader import load_prompt
+from src.core.prompt_loader import load_prompt, load_domain_pack, load_composite
 from src.utils.file_parsers import clean_jira_key_from_title
 
 
@@ -22,7 +22,8 @@ def design_test_scenarios(
     kết hợp đồng thời 8 kỹ thuật ISTQB: EP, BVA, Decision Table, State Transition, Idempotency, Fault Injection, Financial Precision, Security.
     Prompt được nạp động từ file Markdown: prompts/02_scenario_designer.md.
     """
-    system_prompt = load_prompt("02_scenario_designer")
+    system_prompt = load_composite("02_scenario_designer", "shared/severity_priority_rubric")
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
 
     user_prompt = f"""DỰA TRÊN TÀI LIỆU YÊU CẦU & BÁO CÁO PHÂN TÍCH SAU:
 
@@ -35,11 +36,16 @@ def design_test_scenarios(
 5. MA TRẬN RỦI RO SẢN PHẨM (RBT PRODUCT RISKS):
 {chr(10).join([f"- [{getattr(r, 'risk_id', 'RSK-01')}] ({getattr(r, 'risk_level', 'Medium')} - {getattr(r, 'risk_category', 'Business Logic')}) {getattr(r, 'risk_title', '')}: {getattr(r, 'risk_description', '') or getattr(r, 'risk_title', '')} -> Focus: {getattr(r, 'mitigation_test_focus', '')}" for r in analysis.product_risks])}
 
-6. CÁC ĐIỂM BẤT BIẾN NGÂN HÀNG (BANKING INVARIANTS):
+6. BẤT BIẾN NGHIỆP VỤ (DOMAIN INVARIANTS):
 {chr(10).join([f"- {inv}" for inv in analysis.banking_invariants])}
 
 7. CÁC ĐIỀU KIỆN BIÊN & NGOẠI LỆ ĐÃ XÁC ĐỊNH:
 {chr(10).join([f"- {ec}" for ec in analysis.edge_cases])}
+
+================================================================================
+DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ):
+================================================================================
+{domain_pack}
 
 ================================================================================
 NHIỆM VỤ THIẾT KẾ MA TRẬN KỊCH BẢN KIỂM THỬ:
@@ -49,13 +55,13 @@ Hãy áp dụng TOÀN BỘ 8 KỸ THUẬT ISTQB (EP, BVA 2-value/3-value, Decisi
 ĐẢM BẢO BAO PHỦ:
 1. Từng trường dữ liệu trong Schema/DTO (Positive, Missing field, Wrong type, Out-of-range enum).
 2. Dải giá trị và cấu trúc mảng lồng nhau (Mảng rỗng, min > max, overlap bands, gap bands, band cuối max=null).
-3. Biên số tiền, số âm, số 0, precision làm tròn Banker's Rounding, năm nhuận 365 vs 366 ngày, tách thuế VAT.
-4. Đua tranh (Concurrency), trùng Idempotency Key, chống trừ tiền 2 lần.
-5. Vòng đời Scheduled Events, Cron ngày 01 hàng tháng, Activation Hooks khi mở tài khoản CASA.
+3. Các mốc biên và bất biến nghiệp vụ được nêu tại mục "## Biên & giá trị đặc thù" và "## Bất biến nghiệp vụ" của DOMAIN PACK bên trên.
+4. Đua tranh (Concurrency), trùng Idempotency Key (chỉ khi API/tài liệu có định nghĩa cơ chế này), chống xử lý trùng request.
+5. Vòng đời trạng thái (State Transition) theo đúng "## Máy trạng thái" của DOMAIN PACK, và các Hooks/Scheduled Events chỉ khi tài liệu có nêu rõ.
 6. Lỗi mạng Timeout 504, Rollback giao dịch khi lỗi, Payload injection và phân quyền.
 
 YÊU CẦU:
-- Đặt `scenario_title` tự nhiên, đúng ngữ cảnh nghiệp vụ ngân hàng và BỌC DẤU NGOẶC KÉP `""` CHO TẤT CẢ TÊN TRƯỜNG VÀ GIÁ TRỊ.
+- Đặt `scenario_title` tự nhiên, đúng ngữ cảnh nghiệp vụ của domain đang kiểm thử và BỌC DẤU NGOẶC KÉP `""` CHO TẤT CẢ TÊN TRƯỜNG VÀ GIÁ TRỊ.
 - Gán đúng `testing_technique`: "Equivalence Partitioning", "Boundary Value Analysis", "Decision Table", "State Transition", "Idempotency & Concurrency", "Fault Injection & Resilience", "Financial Calculation", "Security Testing".
 """
 
