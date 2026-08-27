@@ -543,6 +543,12 @@ def test_clarification_gate():
     assert detect_missing_artifacts(full_api) == [], detect_missing_artifacts(full_api)
     assert detect_missing_artifacts(ui_with_api + " KHÔNG CÓ API, KHÔNG CÓ MESSAGE") == []
 
+    # 1f. Waiver TỰ DO (không cần đúng khuôn mẫu "KHÔNG CÓ API/MESSAGE") vẫn được chấp nhận
+    free_form_waiver = bare + " Tính năng này hiện chưa có API nào cả, cũng chưa quy định message riêng gì hết."
+    assert detect_missing_artifacts(free_form_waiver) == [], detect_missing_artifacts(free_form_waiver)
+    qna_style_waiver = bare + " Message: N/A. API: not applicable."
+    assert detect_missing_artifacts(qna_style_waiver) == [], detect_missing_artifacts(qna_style_waiver)
+
     gated_default = apply_clarification_gate(RequirementAnalysis(feature_name="X"), bare)
     assert gated_default.needs_user_clarification is True and len(gated_default.clarification_questions) == 4
     gated_ui = apply_clarification_gate(RequirementAnalysis(feature_name="Y"), ui_only)
@@ -574,6 +580,36 @@ def test_clarification_gate():
     print("  -> Generator marker invariant: PENDING CLARIFICATION without a question synthesizes one!")
 
 
+def test_gate_status_reporting():
+    """
+    Kiểm chứng bug đã sửa: lý do CHƯA ĐẠT Quality Gate hiển thị cho User (CLI/Slack) phải khớp ĐÚNG
+    điều kiện gate thật (score >= min_review_score VÀ không Critical/Major), KHÔNG được hardcode
+    "Score X/100 < 95" trong khi X đã >= ngưỡng cấu hình và lý do thật là còn issue Critical/Major.
+    """
+    print("\n[10/10] Testing QA Gate Status Reporting (Score vs. Critical/Major reasons)...")
+    from src.agents.reviewer import gate_failure_reasons
+
+    min_score = load_qa_rules()["min_review_score"]
+
+    # 1. Score đạt ngưỡng nhưng còn issue Critical -> lý do phải là Critical, TUYỆT ĐỐI KHÔNG được nói "Score < ngưỡng"
+    high_score_critical = ReviewResult(
+        passed=False, score=min_score + 1,
+        issues=[ReviewIssue(target_tc_id="TC 01", issue_type="X", severity="Critical", description="d")]
+    )
+    reasons = gate_failure_reasons(high_score_critical)
+    assert any("Critical" in r for r in reasons), reasons
+    assert not any("chưa đạt ngưỡng" in r for r in reasons), reasons
+
+    # 2. Score dưới ngưỡng, không issue nặng -> lý do phải là Score, đúng số min_score cấu hình (không hardcode 95)
+    low_score_clean = ReviewResult(passed=False, score=min_score - 5, issues=[])
+    reasons2 = gate_failure_reasons(low_score_clean)
+    assert reasons2 == [f"Score {min_score - 5}/100 chưa đạt ngưỡng {min_score}/100"], reasons2
+
+    # 3. Đạt cả điểm lẫn không issue nặng -> không còn lý do nào
+    assert gate_failure_reasons(ReviewResult(passed=True, score=min_score, issues=[])) == []
+    print(f"  -> gate_failure_reasons() correctly attributes FAILED to Critical/Major issues (not a false score threshold), using live min_review_score={min_score}!")
+
+
 
 if __name__ == "__main__":
     test_file_parser()
@@ -585,4 +621,5 @@ if __name__ == "__main__":
     test_linter_dead_checks_regression()
     test_new_qa_capabilities()
     test_clarification_gate()
+    test_gate_status_reporting()
     print("\n✅ All component tests PASSED!")

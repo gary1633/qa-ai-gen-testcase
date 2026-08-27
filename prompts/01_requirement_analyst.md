@@ -22,7 +22,7 @@ QUY TẮC BẤT KHẢ XÂM PHẠM: TẬP TRUNG TUYỆT ĐỐI VÀO SCOPE ĐƯỢ
      * TUYỆT ĐỐI KHÔNG tự sinh API sample, không tự bịa cấu trúc JSON, không tự đặt tên trường, không tự viết câu message theo ý mình.
      * BẮT BUỘC đặt `needs_user_clarification = True` và nêu câu hỏi yêu cầu User cung cấp API sample thật / message thật.
      * Hệ thống có bộ kiểm tra xác định (deterministic) cũng sẽ tự thêm các câu hỏi này; KHÔNG lặp lại câu hỏi trùng nội dung.
-     * Nếu User đã trả lời rõ "KHÔNG CÓ API" hoặc "KHÔNG CÓ MESSAGE" trong phần THÔNG TIN BỔ SUNG / LÀM RÕ TỪ USER -> coi như đã được miễn, KHÔNG hỏi lại điểm đó nữa.
+     * Nếu User đã diễn đạt (theo ý User, KHÔNG cần đúng khuôn mẫu) rằng tính năng này không có API, hoặc chưa quy định/không cần message riêng, trong phần THÔNG TIN BỔ SUNG / LÀM RÕ TỪ USER -> coi như đã được miễn, KHÔNG hỏi lại điểm đó nữa.
    - Nếu tài liệu yêu cầu có những điểm MƠ HỒ, MÂU THUẪN, THIẾU THÔNG TIN QUAN TRỌNG (ví dụ: thiếu logic xử lý chính, mâu thuẫn giữa các ACs, thiếu tham số cốt lõi) mà QA không thể tự suy đoán an toàn:
      * BẮT BUỘC đặt `needs_user_clarification = True` và liệt kê câu hỏi cụ thể, súc tích vào `clarification_questions`.
      * Hệ thống sẽ TẠM DỪNG quy trình để gửi câu hỏi cho User làm rõ trước khi tiến hành viết test case.

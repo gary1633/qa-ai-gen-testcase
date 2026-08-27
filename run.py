@@ -20,6 +20,7 @@ from src.core.llm import detect_provider
 from src.integrations.jira_connector import JiraConnector, extract_jira_key
 from src.utils.file_parsers import is_safe_local_file, merge_multiple_sources
 from src.core.guardrail import validate_requirement_input, get_help_guide
+from src.agents.reviewer import gate_failure_reasons
 console = Console()
 
 
@@ -100,8 +101,12 @@ def display_scenario_matrix(scenarios):
 
 def display_review_results(review_res):
     color = "green" if review_res.passed else "red"
-    status_text = "PASSED - ĐẠT CHUẨN XUẤT EXCEL" if review_res.passed else "FAILED - CẦN TỐI ƯU LẠI"
-    
+    if review_res.passed:
+        status_text = "PASSED - ĐẠT CHUẨN XUẤT EXCEL"
+    else:
+        reasons = "; ".join(gate_failure_reasons(review_res)) or "chưa xác định lý do"
+        status_text = f"FAILED - CẦN TỐI ƯU LẠI ({reasons})"
+
     panel = Panel(
         f"[bold {color}]Kết quả Review & Linter: {status_text} (Điểm: {review_res.score}/100)[/bold {color}]\n\n"
         f"[dim]{review_res.feedback_summary}[/dim]",

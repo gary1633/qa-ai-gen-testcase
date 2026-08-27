@@ -26,31 +26,31 @@ MESSAGE_ERROR_CUE_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-API_WAIVER_REGEX = re.compile(
-    r"(no[_\s]?api|không\s+có\s+api|không\s+áp\s+dụng\s+api|chỉ\s+ui|ui\s+only|thuần\s+ui)",
+NEGATION_CUE_REGEX = re.compile(
+    r"\b(không|ko|chưa|chẳng|miễn|khỏi|bỏ\s+qua|no|not\s+applicable|n/?a)\b",
     re.IGNORECASE,
 )
-MESSAGE_WAIVER_REGEX = re.compile(
-    r"(no[_\s]?message|không\s+có\s+message|không\s+quy\s+định\s+message|"
-    r"message\s+theo\s+chuẩn\s+hệ\s+thống)",
-    re.IGNORECASE,
-)
+ONLY_UI_REGEX = re.compile(r"chỉ\s+(có\s+)?ui\b|ui\s+only|thuần\s+ui", re.IGNORECASE)
 
 MISSING_API_REQUEST_QUESTION = (
     "Tài liệu chưa có sample API REQUEST cụ thể (method, endpoint, request body/payload). "
-    "Vui lòng cung cấp request mẫu thật, hoặc trả lời \"KHÔNG CÓ API\" nếu tính năng này không có API."
+    "Vui lòng cung cấp request mẫu thật, hoặc cho biết tính năng này không có API "
+    "(trả lời tự do theo ý bạn, ví dụ \"không có API\", \"tính năng này thuần UI\"... đều được, không cần đúng khuôn mẫu)."
 )
 MISSING_API_RESPONSE_QUESTION = (
     "Tài liệu chưa có sample API RESPONSE cụ thể (response body, HTTP status code). "
-    "Vui lòng cung cấp response mẫu thật, hoặc trả lời \"KHÔNG CÓ API\" nếu tính năng này không có API."
+    "Vui lòng cung cấp response mẫu thật, hoặc cho biết tính năng này không có API "
+    "(trả lời tự do theo ý bạn, không cần đúng khuôn mẫu)."
 )
 MISSING_SUCCESS_MESSAGE_QUESTION = (
     "Tài liệu chưa nêu rõ câu thông báo (message) hoặc mã lỗi cho LUỒNG THÀNH CÔNG. "
-    "Vui lòng cung cấp chính xác message/mã thành công mong đợi, hoặc trả lời \"KHÔNG CÓ MESSAGE\" nếu chưa quy định."
+    "Vui lòng cung cấp chính xác message/mã thành công mong đợi, hoặc cho biết chưa quy định message "
+    "(trả lời tự do theo ý bạn, không cần đúng khuôn mẫu)."
 )
 MISSING_ERROR_MESSAGE_QUESTION = (
     "Tài liệu chưa nêu rõ câu thông báo (message) hoặc mã lỗi cho LUỒNG THẤT BẠI/LỖI. "
-    "Vui lòng cung cấp chính xác message/mã lỗi mong đợi, hoặc trả lời \"KHÔNG CÓ MESSAGE\" nếu chưa quy định."
+    "Vui lòng cung cấp chính xác message/mã lỗi mong đợi, hoặc cho biết chưa quy định message "
+    "(trả lời tự do theo ý bạn, không cần đúng khuôn mẫu)."
 )
 
 
@@ -61,6 +61,18 @@ def _has_message_cue_near(text: str, outcome_regex: re.Pattern, window: int = 80
     for m in MESSAGE_CUE_REGEX.finditer(text):
         ctx = text[max(0, m.start() - window):m.end() + window]
         if outcome_regex.search(ctx):
+            return True
+    return False
+
+
+def _is_waived(text: str, topic_regex: re.Pattern, back_window: int = 30, fwd_window: int = 15) -> bool:
+    """Chấp nhận câu trả lời TỰ DO của User thay vì bắt buộc đúng khuôn mẫu "KHÔNG CÓ API/MESSAGE":
+    coi một chủ đề (api / message) là đã được miễn trừ nếu có từ phủ định (không/ko/chưa/no/n-a...)
+    nằm ngay trước hoặc ngay sau lần nhắc tới chủ đề đó, bất kể diễn đạt cụ thể ra sao."""
+    for m in topic_regex.finditer(text):
+        before = text[max(0, m.start() - back_window):m.start()]
+        after = text[m.end():m.end() + fwd_window]
+        if NEGATION_CUE_REGEX.search(before) or NEGATION_CUE_REGEX.search(after):
             return True
     return False
 
@@ -79,7 +91,8 @@ def detect_missing_artifacts(raw_content: str) -> List[str]:
     text = raw_content or ""
     questions: List[str] = []
 
-    if not API_WAIVER_REGEX.search(text):
+    api_waived = _is_waived(text, API_HINT_REGEX) or bool(ONLY_UI_REGEX.search(text))
+    if not api_waived:
         is_ui_story = bool(UI_HINT_REGEX.search(text))
         is_api_story = not is_ui_story or bool(API_HINT_REGEX.search(text))
         if is_api_story:
@@ -88,7 +101,7 @@ def detect_missing_artifacts(raw_content: str) -> List[str]:
             if not API_RESPONSE_REGEX.search(text):
                 questions.append(MISSING_API_RESPONSE_QUESTION)
 
-    if not MESSAGE_WAIVER_REGEX.search(text):
+    if not _is_waived(text, MESSAGE_CUE_REGEX):
         if not _has_message_cue_near(text, MESSAGE_SUCCESS_CUE_REGEX):
             questions.append(MISSING_SUCCESS_MESSAGE_QUESTION)
         if not _has_message_cue_near(text, MESSAGE_ERROR_CUE_REGEX):

@@ -122,3 +122,19 @@ DANH SÁCH TIÊU CHÍ CHẤP NHẬN (AC) & BUSINESS RULES:
         issues=all_issues,
         feedback_summary=semantic_response.feedback_summary
     )
+
+
+def gate_failure_reasons(review_result: ReviewResult) -> List[str]:
+    """Liệt kê ĐÚNG (các) lý do CHƯA ĐẠT Quality Gate, khớp chính xác điều kiện gate ở trên:
+    score >= min_review_score (config.yaml) VÀ KHÔNG có issue Critical/Major. Điểm số đạt ngưỡng
+    không đồng nghĩa với PASSED nếu vẫn còn issue Critical/Major chưa xử lý — hàm này tránh hiển thị
+    lý do sai (vd: báo "Score 96 < 95" trong khi 96 >= 95 và lý do thật là còn issue Critical)."""
+    min_score = load_qa_rules()["min_review_score"]
+    reasons: List[str] = []
+    if review_result.score < min_score:
+        reasons.append(f"Score {review_result.score}/100 chưa đạt ngưỡng {min_score}/100")
+    if any(issue.severity == "Critical" for issue in review_result.issues):
+        reasons.append("còn issue mức Critical chưa xử lý")
+    if any(issue.severity == "Major" for issue in review_result.issues):
+        reasons.append("còn issue mức Major chưa xử lý")
+    return reasons

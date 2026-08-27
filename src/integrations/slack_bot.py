@@ -11,7 +11,7 @@ from src.core.guardrail import validate_requirement_input, get_help_guide
 from src.agents.requirement_analyst import analyze_requirements
 from src.agents.scenario_designer import design_test_scenarios
 from src.agents.testcase_generator import generate_test_cases
-from src.agents.reviewer import review_and_lint_test_suite
+from src.agents.reviewer import review_and_lint_test_suite, gate_failure_reasons
 from src.utils.excel_exporter import export_test_cases_to_excel
 load_dotenv()
 
@@ -189,6 +189,12 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
             )
 
         # 4. Tạo tin nhắn tổng hợp Block Kit
+        if review_result and review_result.passed:
+            review_status_text = "ĐẠT CHUẨN (PASSED ✅)"
+        elif review_result:
+            review_status_text = f"CHƯA ĐẠT ({'; '.join(gate_failure_reasons(review_result))}) ⚠️"
+        else:
+            review_status_text = "N/A"
         blocks = [
             {
                 "type": "header",
@@ -206,7 +212,7 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
                     {"type": "mrkdwn", "text": f"*📋 Tiêu chí AC:* {len(analysis.acceptance_criteria)} tiêu chí"},
                     {"type": "mrkdwn", "text": f"*🧪 Số lượng Test Cases:* {len(test_cases)} cases"},
                     {"type": "mrkdwn", "text": f"*🛡️ QA Gate Score:* {review_result.score if review_result else 'N/A'}/100"},
-                    {"type": "mrkdwn", "text": f"*⚡ Trạng thái Review:* {'ĐẠT CHUẨN (PASSED ✅)' if review_result and review_result.passed else f'CHƯA ĐẠT (Score: {review_result.score}/100 < 95) ⚠️'}"}
+                    {"type": "mrkdwn", "text": f"*⚡ Trạng thái Review:* {review_status_text}"}
                 ]
             }
         ]
