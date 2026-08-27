@@ -251,4 +251,4 @@ Toàn bộ System Prompt của các Agent đã được tách biệt hoàn toàn
 ```bash
 python tests/test_components.py
 ```
-*(Kiểm tra toàn diện 10 bộ test: File Parsers, QA Domain Linter, Excel Exporter Template, LangGraph Workflow Compilation, Agent LLM Invocation Contracts, Multi-Domain Support, Linter Dead-Checks Regression, New QA Capabilities, Hard-Stop Clarification Gate, và QA Gate Status Reporting)*.
+*(Kiểm tra toàn diện 11 bộ test: File Parsers, QA Domain Linter, Excel Exporter Template, LangGraph Workflow Compilation, Agent LLM Invocation Contracts, Multi-Domain Support, Linter Dead-Checks Regression, New QA Capabilities, Hard-Stop Clarification Gate, QA Gate Status Reporting, và Slack Thread-Context Memory)*.

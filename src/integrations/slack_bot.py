@@ -3,10 +3,10 @@ import re
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 import requests
 from dotenv import load_dotenv
-from src.utils.file_parsers import extract_input_content
+from src.utils.file_parsers import extract_input_content, merge_multiple_sources, is_safe_local_file
 from src.core.guardrail import validate_requirement_input, get_help_guide
 from src.agents.requirement_analyst import analyze_requirements
 from src.agents.scenario_designer import design_test_scenarios
@@ -14,6 +14,30 @@ from src.agents.testcase_generator import generate_test_cases
 from src.agents.reviewer import review_and_lint_test_suite, gate_failure_reasons
 from src.utils.excel_exporter import export_test_cases_to_excel
 load_dotenv()
+
+# Bộ nhớ ngữ cảnh theo luồng hội thoại (Thread-Context Memory):
+# Khi Agent phải dừng lại hỏi làm rõ (Clarification Gate), nội dung tài liệu đã gộp tại thời điểm
+# đó được ghi nhớ theo key của luồng hội thoại. Khi User trả lời trong thread (hoặc nhắn tiếp trong
+# DM), câu trả lời được GỘP vào ĐÚNG tài liệu/ticket gốc thay vì bị xử lý như 1 yêu cầu rời rạc mới
+# (khắc phục bug "hỏi xong là quên mất ticket ban đầu").
+_pending_thread_context: Dict[str, str] = {}
+_pending_thread_lock = threading.Lock()
+
+
+def _get_pending_context(key: str) -> Optional[str]:
+    with _pending_thread_lock:
+        return _pending_thread_context.get(key)
+
+
+def _set_pending_context(key: str, content: str):
+    with _pending_thread_lock:
+        _pending_thread_context[key] = content
+
+
+def _clear_pending_context(key: str):
+    with _pending_thread_lock:
+        _pending_thread_context.pop(key, None)
+
 
 
 def download_slack_file(url_private: str, token: str, filename: str) -> str:
@@ -35,19 +59,29 @@ def render_progress_text(steps_status: List[str]) -> str:
     return "\n".join(lines)
 
 
-def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text: str, file_path: Optional[str] = None):
-    """Thực thi QA Agentic Workflow và cập nhật trực tiếp tiến trình theo thời gian thực lên Slack"""
+def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_sources: List[str], context_key: Optional[str] = None):
+    """Thực thi QA Agentic Workflow và cập nhật trực tiếp tiến trình theo thời gian thực lên Slack.
+
+    `raw_sources`: các nguồn tài liệu thô (Jira key/link, đường dẫn file tạm vừa tải về, hoặc raw text)
+    sẽ được gộp thành 1 tài liệu phân tích duy nhất (giống cơ chế `-e/--extra` của CLI). `context_key`
+    (nếu có) ghi nhớ ngữ cảnh của luồng hội thoại này để lần User trả lời làm rõ tiếp theo được nối
+    tiếp đúng vào ticket/tài liệu gốc.
+    """
     progress_ts = None
     try:
-        # 1. Trích xuất nội dung input
-        if file_path and os.path.exists(file_path):
-            content, _ = extract_input_content(file_path)
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
-        else:
-            content, _ = extract_input_content(raw_text)
+        # 1. Trích xuất & gộp nội dung input (tự động dọn file tạm ngay sau khi trích xuất)
+        resolved_sources = []
+        for src in raw_sources:
+            if src and is_safe_local_file(src) and os.path.exists(src):
+                file_content, _ = extract_input_content(src)
+                resolved_sources.append(file_content)
+                try:
+                    os.remove(src)
+                except Exception:
+                    pass
+            elif src:
+                resolved_sources.append(src)
+        content, _, _ = merge_multiple_sources(resolved_sources)
         if not content or len(content.strip()) < 5:
             client.chat_postMessage(
                 channel=channel_id,
@@ -102,6 +136,8 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
                     }
                 }
             ]
+            if context_key:
+                _set_pending_context(context_key, content)
             client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
@@ -176,6 +212,8 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
         client.chat_update(channel=channel_id, ts=progress_ts, text=final_summary_text)
 
         if pending_clarifications:
+            if context_key:
+                _set_pending_context(context_key, content)
             q_mrkdwn = "\n".join([f"*{i}.* {q}" for i, q in enumerate(pending_clarifications, 1)])
             client.chat_postMessage(
                 channel=channel_id,
@@ -184,9 +222,11 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_text
                     f"⚠️ *Còn {len(pending_clarifications)} điểm chưa có dữ kiện (API sample / message) - Agent KHÔNG tự bịa:*\n"
                     f"{q_mrkdwn}\n\n"
                     "_Các test case bị ảnh hưởng đã tô vàng & ghi chú PENDING CLARIFICATION. "
-                    "Tag bot kèm thông tin bổ sung để sinh lại đầy đủ._"
+                    "Tag bot kèm thông tin bổ sung để sinh lại đầy đủ - Bot vẫn nhớ ticket/tài liệu gốc, không cần nhắc lại._"
                 )
             )
+        elif context_key:
+            _clear_pending_context(context_key)
 
         # 4. Tạo tin nhắn tổng hợp Block Kit
         if review_result and review_result.passed:
@@ -276,6 +316,11 @@ def create_slack_app():
         files = event.get("files", [])
         cleaned_text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
+        # Ghi nhớ luồng hội thoại theo (channel, thread gốc): nếu còn câu hỏi làm rõ đang treo,
+        # tin nhắn này được nối vào ĐÚNG ticket/tài liệu gốc thay vì bị coi là yêu cầu hoàn toàn mới.
+        context_key = f"{channel_id}:{thread_ts}"
+        existing_context = _get_pending_context(context_key)
+
         file_path = None
         if files:
             first_file = files[0]
@@ -283,17 +328,24 @@ def create_slack_app():
             file_name = first_file.get("name", "document.txt")
             say(channel=channel_id, thread_ts=thread_ts, text=f"📥 Đã nhận file đính kèm: *{file_name}*. Đang bắt đầu xử lý...")
             file_path = download_slack_file(file_url, token, file_name)
+            new_source = file_path
         else:
-            # Kiểm tra Guardrail chống spam / câu hỏi vô nghĩa
-            is_valid, reason, guide = validate_requirement_input(cleaned_text)
-            if not is_valid:
-                say(channel=channel_id, thread_ts=thread_ts, text=f"⚠️ *{reason}*\n\n{guide}")
-                return
-            say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đã nhận User Story / Mã Jira. Đang khởi chạy QA Agents...")
+            if existing_context is None:
+                # Guardrail chống spam / câu hỏi vô nghĩa chỉ áp cho yêu cầu MỚI, không áp cho câu trả lời làm rõ.
+                is_valid, reason, guide = validate_requirement_input(cleaned_text)
+                if not is_valid:
+                    say(channel=channel_id, thread_ts=thread_ts, text=f"⚠️ *{reason}*\n\n{guide}")
+                    return
+                say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đã nhận User Story / Mã Jira. Đang khởi chạy QA Agents...")
+            else:
+                say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đã nhận thông tin làm rõ. Đang gộp vào ticket/tài liệu gốc và phân tích lại...")
+            new_source = cleaned_text
+
+        raw_sources = ([existing_context] if existing_context else []) + [new_source]
 
         threading.Thread(
             target=run_workflow_in_background,
-            args=(client, channel_id, thread_ts, cleaned_text, file_path)
+            args=(client, channel_id, thread_ts, raw_sources, context_key)
         ).start()
 
     @app.event("message")
@@ -308,6 +360,11 @@ def create_slack_app():
         text = event.get("text", "")
         files = event.get("files", [])
 
+        # 1 kênh DM = 1 hội thoại liên tục (User không cần bấm "Reply in thread"), nên context được
+        # ghi nhớ theo cả kênh DM, không đòi hỏi khớp đúng thread_ts như trong channel.
+        context_key = f"dm:{channel_id}"
+        existing_context = _get_pending_context(context_key)
+
         file_path = None
         if files:
             first_file = files[0]
@@ -315,17 +372,24 @@ def create_slack_app():
             file_name = first_file.get("name", "document.txt")
             say(channel=channel_id, thread_ts=thread_ts, text=f"📥 Đã nhận file đính kèm: *{file_name}*. Đang phân tích...")
             file_path = download_slack_file(file_url, token, file_name)
+            new_source = file_path
         else:
-            # Kiểm tra Guardrail chống spam / câu hỏi vô nghĩa
-            is_valid, reason, guide = validate_requirement_input(text)
-            if not is_valid:
-                say(channel=channel_id, thread_ts=thread_ts, text=f"⚠️ *{reason}*\n\n{guide}")
-                return
-            say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đang phân tích yêu cầu của bạn...")
+            if existing_context is None:
+                # Guardrail chống spam / câu hỏi vô nghĩa chỉ áp cho yêu cầu MỚI, không áp cho câu trả lời làm rõ.
+                is_valid, reason, guide = validate_requirement_input(text)
+                if not is_valid:
+                    say(channel=channel_id, thread_ts=thread_ts, text=f"⚠️ *{reason}*\n\n{guide}")
+                    return
+                say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đang phân tích yêu cầu của bạn...")
+            else:
+                say(channel=channel_id, thread_ts=thread_ts, text="🧠 Đã nhận thông tin làm rõ. Đang gộp vào ticket/tài liệu gốc và phân tích lại...")
+            new_source = text
+
+        raw_sources = ([existing_context] if existing_context else []) + [new_source]
 
         threading.Thread(
             target=run_workflow_in_background,
-            args=(client, channel_id, thread_ts, text, file_path)
+            args=(client, channel_id, thread_ts, raw_sources, context_key)
         ).start()
 
     @app.command("/qa-testcase")
@@ -354,7 +418,7 @@ def create_slack_app():
 
         threading.Thread(
             target=run_workflow_in_background,
-            args=(client, channel_id, thread_ts, text, None)
+            args=(client, channel_id, thread_ts, [text], f"{channel_id}:{thread_ts}")
         ).start()
 
     return app

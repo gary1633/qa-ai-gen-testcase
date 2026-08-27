@@ -610,6 +610,70 @@ def test_gate_status_reporting():
     print(f"  -> gate_failure_reasons() correctly attributes FAILED to Critical/Major issues (not a false score threshold), using live min_review_score={min_score}!")
 
 
+def test_slack_thread_context_memory():
+    """
+    Kiểm chứng bug đã sửa: Agent hỏi lại User trong Slack thread (thiếu API sample/message) rồi
+    User trả lời trong thread -> Agent PHẢI nhớ ticket/tài liệu gốc và gộp câu trả lời vào đó,
+    KHÔNG được coi câu trả lời (thường rất ngắn, ví dụ "KHÔNG CÓ API") như 1 yêu cầu hoàn toàn mới
+    rời rạc rồi bị Guardrail từ chối vì "quá ngắn / thiếu tiêu chí nghiệp vụ".
+    """
+    print("\n[11/11] Testing Slack Thread-Context Memory (Clarification Reply Must Not Forget Original Ticket)...")
+    from unittest.mock import patch
+    import src.integrations.slack_bot as slack_bot
+    from src.agents.testcase_generator import TestCaseGenerationResult
+
+    slack_bot._pending_thread_context.clear()
+
+    class FakeClient:
+        def chat_postMessage(self, **kwargs):
+            return {"ts": "999.999"}
+        def chat_update(self, **kwargs):
+            return {"ts": kwargs.get("ts")}
+        def files_upload_v2(self, **kwargs):
+            pass
+
+    client = FakeClient()
+    channel_id = "C123"
+    thread_ts = "111.111"
+    context_key = f"{channel_id}:{thread_ts}"
+    original_ticket_text = (
+        "Yeu cau nghiep vu Chuyen tien nhanh Napas hai bon bay: khach hang ca nhan chuyen tien den "
+        "so tai khoan ngan hang khac. AC1 so tien toi thieu 10000 toi da 499999999 VND moi giao dich."
+    )
+
+    analyze_calls = []
+    def fake_analyze_requirements(raw_content, **kwargs):
+        analyze_calls.append(raw_content)
+        if len(analyze_calls) == 1:
+            return RequirementAnalysis(
+                feature_name="Chuyen tien Napas", needs_user_clarification=True,
+                clarification_questions=["Vui lòng cung cấp API sample (request/response) cho tính năng này."]
+            )
+        assert "Napas" in raw_content, "Original ticket content was lost on the clarification reply round!"
+        assert "KHÔNG CÓ API" in raw_content, "User's clarification reply was lost on the reply round!"
+        return RequirementAnalysis(feature_name="Chuyen tien Napas", needs_user_clarification=False)
+
+    with patch("src.integrations.slack_bot.analyze_requirements", side_effect=fake_analyze_requirements), \
+         patch("src.integrations.slack_bot.design_test_scenarios", return_value=[TestScenario(scenario_id="SC-01", scenario_title="x", technique="EP")]), \
+         patch("src.integrations.slack_bot.generate_test_cases") as mock_gen, \
+         patch("src.integrations.slack_bot.review_and_lint_test_suite", return_value=ReviewResult(passed=True, score=100)), \
+         patch("src.integrations.slack_bot.export_test_cases_to_excel", return_value=None):
+        mock_gen.return_value = TestCaseGenerationResult(test_cases=[TestCase(testcase_id="TC 01", title="x")], clarification_questions=[])
+
+        # Round 1: user tags bot with the original ticket -> Agent must stop and ask, and remember it.
+        slack_bot.run_workflow_in_background(client, channel_id, thread_ts, [original_ticket_text], context_key)
+        remembered = slack_bot._get_pending_context(context_key)
+        assert remembered is not None, "Context was not remembered after asking for clarification!"
+        assert "Napas" in remembered
+
+        # Round 2: user replies in-thread with ONLY "KHÔNG CÓ API" (14 chars - fails guardrail standalone).
+        slack_bot.run_workflow_in_background(client, channel_id, thread_ts, [remembered, "KHÔNG CÓ API"], context_key)
+
+    assert len(analyze_calls) == 2, f"Expected exactly 2 analysis calls (original + merged reply), got {len(analyze_calls)}"
+    assert slack_bot._get_pending_context(context_key) is None, "Context must be cleared once the workflow fully resolves!"
+    print("  -> Clarification reply correctly merged with original ticket; thread context cleared once resolved!")
+
+
 
 if __name__ == "__main__":
     test_file_parser()
@@ -622,4 +686,5 @@ if __name__ == "__main__":
     test_new_qa_capabilities()
     test_clarification_gate()
     test_gate_status_reporting()
+    test_slack_thread_context_memory()
     print("\n✅ All component tests PASSED!")
