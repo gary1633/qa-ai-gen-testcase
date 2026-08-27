@@ -37,7 +37,7 @@ flowchart TD
     G -- Chưa đạt: Bổ sung BVA/Idempotency/Sửa lỗi mơ hồ --> H[Feedback Loop & Auto-Refinement]
     H --> E
     G -- Đạt chuẩn Score >= min_review_score & không Critical/Major --> I[Node 5: Standard Excel Exporter]
-    I --> J[File Test Suite hoàn chỉnh trong outputs/ có Logo, Biểu đồ & sheet 'Cần làm rõ (Pending)' nếu còn câu hỏi]
+    I --> J["File Test Suite hoàn chỉnh trong outputs/ có Logo, Biểu đồ & sheet 'Cần làm rõ (Pending)' nếu còn câu hỏi"]
 ```
 
 ---
