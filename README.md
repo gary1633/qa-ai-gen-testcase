@@ -27,14 +27,17 @@ Hệ thống áp dụng đồng thời **8 kỹ thuật kiểm thử chuyên sâ
 flowchart TD
     A[Nhiều nguồn Input: Jira Tickets / Word / PDF / OpenAPI / Specs trong docs/] --> B[Node 0: Multi-Document Aggregator]
     B --> C[Node 1: Requirement Analyst & Banking Domain Specialist]
-    C -->|Bóc tách AC, Invariants, QĐ 2345 & Ma trận RBT| D[Node 2: Scenario Designer - 8 ISTQB Techniques]
+    C -->|Bóc tách AC, Invariants, QĐ 2345 & Ma trận RBT| CG{Thiếu API sample / message?}
+    CG -- Có, và User chưa waive --> STOP[🛑 Hard-Stop Clarification Gate<br/>Hỏi lại User qua CLI / Slack, KHÔNG tự bịa]
+    STOP -.User trả lời tự do, không cần đúng khuôn mẫu.-> C
+    CG -- Không / đã được waive --> D[Node 2: Scenario Designer - 8 ISTQB Techniques]
     D -->|Ma trận 30 - 50+ Kịch bản chuyên sâu| E[Node 3: Testcase Generator - Paced Batching]
     E -->|Test Cases 14 cột: Title chuẩn ngoặc kép & Nhúng Body JSON vào Steps| F[Node 4: QA Gatekeeper & Banking Linter]
     F --> G{Đạt chuẩn QA Gate?}
     G -- Chưa đạt: Bổ sung BVA/Idempotency/Sửa lỗi mơ hồ --> H[Feedback Loop & Auto-Refinement]
     H --> E
-    G -- Đạt chuẩn (Score >= 80/100) --> I[Node 5: Standard Excel Exporter]
-    I --> J[File Test Suite hoàn chỉnh trong outputs/ có Logo & Biểu đồ]
+    G -- Đạt chuẩn Score >= min_review_score & không Critical/Major --> I[Node 5: Standard Excel Exporter]
+    I --> J[File Test Suite hoàn chỉnh trong outputs/ có Logo, Biểu đồ & sheet 'Cần làm rõ (Pending)' nếu còn câu hỏi]
 ```
 
 ---
@@ -63,6 +66,18 @@ Mỗi test case sinh ra tuân thủ nghiêm ngặt chuẩn Test Suite Ngân hàn
    - Đầy đủ Logo và **4 biểu đồ tiến độ trực quan** (Total, Passed, Failed, Blocked).
    - Công thức tự động `=COUNTIF(A22:A50, "TC*")` liên kết động giữa các sheet.
    - Tự động định dạng `Wrap Text`, căn lề `Top-Left` và thụt dòng đẹp mắt cho các khối JSON.
+
+## 🛑 Cơ Chế Hard-Stop Clarification Gate (Không Tự Bịa API Sample / Message)
+
+Hệ thống có một bộ kiểm tra **xác định (deterministic)** — nằm ngoài phán đoán của LLM — chuyên bắt các trường hợp tài liệu đầu vào thiếu dữ kiện quan trọng và **BẮT BUỘC dừng lại hỏi User thay vì tự bịa**:
+
+- **API sample:** nếu tính năng được coi là có liên quan API (mặc định assume API, trừ khi tài liệu rõ ràng thuần UI), hệ thống đòi hỏi phải có **ĐỦ CẢ** sample REQUEST (method, endpoint, request body/payload) **VÀ** RESPONSE (response body, HTTP status) — thiếu 1 trong 2 vẫn bị hỏi lại.
+- **Message / mã lỗi:** áp dụng cho mọi loại tính năng (kể cả thuần UI), đòi hỏi phải rõ **ĐỦ CẢ** message cho luồng THÀNH CÔNG **VÀ** luồng THẤT BẠI/LỖI.
+- **Trả lời tự do:** User không cần đúng khuôn mẫu "KHÔNG CÓ API" / "KHÔNG CÓ MESSAGE" — chỉ cần diễn đạt theo ý mình (vd: *"tính năng này hiện chưa có API nào cả"*, *"Message: N/A"*), hệ thống tự nhận diện phủ định gần chủ đề để miễn câu hỏi.
+- **Fabricated-Message Linter (Node 4):** song song đó, mọi câu message được Test Case assert đều bị đối chiếu ngược lại với tài liệu gốc — message không có căn cứ trong tài liệu bị gắn cờ `Fabricated Message / Ungrounded Value` mức Critical, chặn Quality Gate.
+- **Không chặn đứng Excel:** nếu vẫn còn câu hỏi mở khi hết vòng lặp, hệ thống **vẫn xuất file Excel** — các Test Case bị ảnh hưởng được tô vàng, ghi chú `PENDING CLARIFICATION`, và toàn bộ câu hỏi được liệt kê trong sheet riêng **`Cần làm rõ (Pending)`**. Câu hỏi cũng hiển thị ở CLI panel và tin nhắn thread Slack.
+
+👉 Trả lời câu hỏi bằng cách chạy lại kèm nội dung làm rõ (CLI: `python run.py VWCBT-3800 -e "<câu trả lời tự do>"`, Slack: tag Bot kèm câu trả lời trong thread) — hệ thống gộp câu trả lời vào tài liệu và phân tích lại.
 
 ---
 
@@ -195,7 +210,8 @@ qa-agentic-workflow/
 │   │   ├── prompt_loader.py         # Module nạp prompt động từ file .md với LRU Cache
 │   │   ├── llm.py                   # Adapter LLM đa Provider (Tự động Retry & Fallback 429)
 │   │   ├── models.py                # Pydantic Schemas chuẩn xác thực dữ liệu
-│   │   ├── linter.py                # Deterministic QA & Banking Domain Linter
+│   │   ├── clarification.py         # Deterministic Hard-Stop Clarification Gate (API req/res, message ok/error)
+│   │   ├── linter.py                # Deterministic QA & Banking Domain Linter (kèm Fabricated-Message check)
 │   │   ├── state.py                 # LangGraph Workflow State
 │   │   └── workflow.py              # LangGraph Orchestration Pipeline
 │   ├── integrations/
@@ -235,4 +251,4 @@ Toàn bộ System Prompt của các Agent đã được tách biệt hoàn toàn
 ```bash
 python tests/test_components.py
 ```
-*(Kiểm tra toàn diện 4 module: File Parsers, QA Domain Linter, Excel Exporter Template, và LangGraph Workflow Compilation)*.
+*(Kiểm tra toàn diện 10 bộ test: File Parsers, QA Domain Linter, Excel Exporter Template, LangGraph Workflow Compilation, Agent LLM Invocation Contracts, Multi-Domain Support, Linter Dead-Checks Regression, New QA Capabilities, Hard-Stop Clarification Gate, và QA Gate Status Reporting)*.
