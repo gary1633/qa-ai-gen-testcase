@@ -16,7 +16,7 @@ def analyze_requirements(
     api_key: Optional[str] = None
 ) -> RequirementAnalysis:
     """
-    Phân tích yêu cầu với bộ 7 Kỹ năng Chuyên sâu của Senior QA Banking Architect.
+    Phân tích yêu cầu với bộ 8 Kỹ năng Chuyên sâu của Senior QA Banking Architect.
     Prompt được nạp động từ file Markdown: prompts/01_requirement_analyst.md.
     """
     system_prompt = load_prompt("01_requirement_analyst")
@@ -38,7 +38,7 @@ DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ - THAM KHẢO ĐỂ NHẬN DI�
 {domain_pack}
 
 YÊU CẦU THỰC HIỆN:
-Áp dụng BỘ 7 KỸ NĂNG PHÂN TÍCH YÊU CẦU CHUYÊN SÂU (Explicit Grounding, 360-degree Boundary Discovery, Multi-Stakeholder Analysis, Invariants, Testability, Traceability, RBT Matrix) để xuất ra Báo cáo Phân tích Yêu cầu chuẩn xác, không suy diễn sai lệch và bao phủ 100% nghiệp vụ.
+Áp dụng BỘ 8 KỸ NĂNG PHÂN TÍCH YÊU CẦU CHUYÊN SÂU (Explicit Grounding, 360-degree Boundary Discovery, Multi-Stakeholder Analysis, Invariants, Testability, Traceability, RBT Matrix, Multi-Source Cross-Reference Mapping) để xuất ra Báo cáo Phân tích Yêu cầu chuẩn xác, không suy diễn sai lệch, KHÔNG bỏ sót bất kỳ tài liệu tham khảo đính kèm nào, và bao phủ 100% nghiệp vụ.
 """
     result: RequirementAnalysis = invoke_structured_llm(
         system_prompt=system_prompt,

@@ -27,6 +27,7 @@ def _generate_single_batch(
     start_tc_num: int,
     today_str: str,
     feedback_prompt: str = "",
+    raw_content: str = "",
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -70,6 +71,11 @@ DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ):
 ================================================================================
 {domain_pack}
 
+================================================================================
+TÀI LIỆU GỐC DO USER CUNG CẤP (THAM KHẢO TRỰC TIẾP ĐỂ LẤY CHÍNH XÁC FIELD NAME / API SAMPLE / GIÁ TRỊ THẬT — KHÔNG CHỈ DỰA VÀO TIÊU CHÍ NGHIỆM THU ĐÃ TÓM TẮT Ở TRÊN):
+================================================================================
+{raw_content or "(Không có tài liệu gốc đính kèm ngoài bản phân tích trên)"}
+
 HÃY SINH TOÀN BỘ TEST CASE CHI TIẾT 14 CỘT DỮ LIỆU + 2 DÒNG BANNER PHÂN CẤP CHO {len(scenario_batch)} KỊCH BẢN SAU ĐÂY:
 {scenarios_text}
 
@@ -84,6 +90,7 @@ YÊU CẦU QUAN TRỌNG ĐỂ ĐẠT QUALITY GATE >= 95/100:
 6. Cột `note` BẮT BUỘC ghi trace theo đúng định dạng "Trace: AC-xx | RSK-yy | <jira>"; nếu test case triệt tiêu một rủi ro RBT thì PHẢI ghi đúng mã RSK-yy của rủi ro đó.
 7. NẾU CÓ FEEDBACK TỪ QA REVIEWER: BẮT BUỘC sửa triệt để 100% các lỗi được chỉ ra để đảm bảo bộ test case đạt điểm tối đa >= 95/100!
 8. Thiếu API sample / message -> nêu câu hỏi vào clarification_questions và ghi " | PENDING CLARIFICATION" vào note; TUYỆT ĐỐI KHÔNG tự bịa sample hay câu chữ.
+9. ĐỐI CHIẾU ĐA NGUỒN: Nếu TÀI LIỆU GỐC bên trên có nhiều khối `## [Tài liệu N - ...]`, PHẢI quét hết các khối đó để lấy đúng field/API sample/message/số liệu thật cho `steps`/`test_data`/`expected_result` — kể cả khi chi tiết đó chỉ nằm ở tài liệu tham khảo đính kèm (BRD/SRS, Figma, API Spec...) chứ không nằm trong US/ticket chính.
 """
     result: BatchTestSuiteResponse = invoke_structured_llm(
         system_prompt=system_prompt,
@@ -103,6 +110,8 @@ def _generate_supplementary_testcases(
     coverage_issues: List[ReviewIssue],
     start_tc_num: int,
     today_str: str,
+    raw_content: str = "",
+    existing_group_features: Optional[List[str]] = None,
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -112,6 +121,7 @@ def _generate_supplementary_testcases(
     system_prompt = load_composite("03_testcase_generator", "shared/severity_priority_rubric")
     domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
     issues_desc = "\n".join([f"- {iss.issue_type} ({iss.severity}): {iss.description} -> Yêu cầu: {iss.suggested_fix}" for iss in coverage_issues])
+    existing_groups_text = "\n".join([f"- {g}" for g in (existing_group_features or [])]) or "(Bộ suite hiện chưa có nhóm nào)"
 
     user_prompt = f"""TÍNH NĂNG: {analysis.feature_name}
 PHÂN HỆ: {analysis.banking_domain}
@@ -124,6 +134,16 @@ DOMAIN PACK (QUY TẮC NGHIỆP VỤ ĐẶC THÙ):
 ================================================================================
 {domain_pack}
 
+================================================================================
+TÀI LIỆU GỐC DO USER CUNG CẤP (THAM KHẢO TRỰC TIẾP ĐỂ LẤY CHÍNH XÁC FIELD NAME / API SAMPLE / GIÁ TRỊ THẬT):
+================================================================================
+{raw_content or "(Không có tài liệu gốc đính kèm ngoài bản phân tích trên)"}
+
+================================================================================
+CÁC NHÓM `group_feature` ĐÃ TỒN TẠI TRONG BỘ TEST SUITE HIỆN TẠI (để tiếp nối ĐÚNG số thứ tự & mã AC bên dưới):
+================================================================================
+{existing_groups_text}
+
 BỘ TEST SUITE HIỆN TẠI ĐANG THIẾU CÁC KỊCH BẢN KIỂM THỬ QUAN TRỌNG SAU (CẦN BỔ SUNG GẤP ĐỂ ĐẠT QUALITY GATE >= 95/100):
 {issues_desc}
 
@@ -134,7 +154,9 @@ YÊU CẦU THỰC HIỆN:
 4. Expected Result định lượng rõ ràng: HTTP Status, JSON response, mã lỗi nghiệp vụ, biến động số dư.
 5. Nhúng trực tiếp Body JSON vào bước thực hiện (steps).
 6. Cột `note` BẮT BUỘC ghi trace theo đúng định dạng "Trace: AC-xx | RSK-yy | <jira>"; nếu test case triệt tiêu một rủi ro RBT thì PHẢI ghi đúng mã RSK-yy của rủi ro đó.
-7. Thiếu API sample / message -> nêu câu hỏi vào clarification_questions và ghi " | PENDING CLARIFICATION" vào note; TUYỆT ĐỐI KHÔNG tự bịa sample hay câu chữ.
+7. `group_feature` BẮT BUỘC bám đúng mã AC-xx được nhắc tới trong "BỘ TEST SUITE HIỆN TẠI ĐANG THIẾU..." ở trên: nếu AC-xx đó ĐÃ CÓ nhóm trong danh sách "CÁC NHÓM group_feature ĐÃ TỒN TẠI", PHẢI TÁI SỬ DỤNG NGUYÊN VĂN đúng nhóm đó (không đổi số thứ tự/tên); nếu là AC hoàn toàn chưa có nhóm nào, đặt số thứ tự group_feature TIẾP NỐI ngay sau số lớn nhất đang tồn tại trong danh sách trên — TUYỆT ĐỐI KHÔNG bắt đầu lại từ số "1." nếu số "1." đã được nhóm khác sử dụng.
+8. Thiếu API sample / message -> nêu câu hỏi vào clarification_questions và ghi " | PENDING CLARIFICATION" vào note; TUYỆT ĐỐI KHÔNG tự bịa sample hay câu chữ.
+9. ĐỐI CHIẾU ĐA NGUỒN: Nếu TÀI LIỆU GỐC bên trên có nhiều khối `## [Tài liệu N - ...]`, PHẢI quét hết các khối đó để lấy đúng field/API sample/message/số liệu thật — kể cả khi chi tiết đó chỉ nằm ở tài liệu tham khảo đính kèm (BRD/SRS, Figma, API Spec...) chứ không nằm trong US/ticket chính.
 """
     result: BatchTestSuiteResponse = invoke_structured_llm(
         system_prompt=system_prompt,
@@ -153,6 +175,7 @@ def generate_test_cases(
     analysis: RequirementAnalysis,
     scenarios: List[TestScenario],
     review_feedback: Optional[ReviewResult] = None,
+    raw_content: str = "",
     provider: Optional[str] = None,
     model_name: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -198,6 +221,7 @@ def generate_test_cases(
             start_tc_num=start_tc_num,
             today_str=today_str,
             feedback_prompt=feedback_prompt,
+            raw_content=raw_content,
             provider=provider,
             model_name=model_name,
             base_url=base_url,
@@ -237,6 +261,8 @@ def generate_test_cases(
                 coverage_issues=coverage_issues,
                 start_tc_num=len(all_test_cases) + 1,
                 today_str=today_str,
+                raw_content=raw_content,
+                existing_group_features=sorted({tc.group_feature for tc in all_test_cases if tc.group_feature}),
                 provider=provider,
                 model_name=model_name,
                 base_url=base_url,

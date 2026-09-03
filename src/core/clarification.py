@@ -5,7 +5,10 @@ from src.core.models import RequirementAnalysis
 PENDING_CLARIFICATION_MARKER = "PENDING CLARIFICATION"
 
 API_REQUEST_REGEX = re.compile(
-    r"\b(GET|POST|PUT|PATCH|DELETE)\s+/|request\s+body|\bpayload\b|\brequest\s*:",
+    r"\b(GET|POST|PUT|PATCH|DELETE)\s+(/|https?://)"       # Văn bản mô tả: "POST /path" hoặc "POST https://host/path"
+    r"|(-X|--request)\s*['\"]?(GET|POST|PUT|PATCH|DELETE)\b"  # cURL: "-X POST" / "--request POST"
+    r"|\bcurl\s+\S"                                          # Bất kỳ lệnh cURL nào (kể cả không có -X, mặc định GET) đã LÀ 1 request cụ thể
+    r"|request\s+body|\bpayload\b|\brequest\s*:",
     re.IGNORECASE,
 )
 API_RESPONSE_REGEX = re.compile(
@@ -34,7 +37,8 @@ ONLY_UI_REGEX = re.compile(r"chỉ\s+(có\s+)?ui\b|ui\s+only|thuần\s+ui", re.I
 
 MISSING_API_REQUEST_QUESTION = (
     "Tài liệu chưa có sample API REQUEST cụ thể (method, endpoint, request body/payload). "
-    "Vui lòng cung cấp request mẫu thật, hoặc cho biết tính năng này không có API "
+    "Vui lòng dán trực tiếp lệnh cURL thật (vd: curl -X POST https://host/path -H \"...\" -d '{...}'), "
+    "hoặc request mẫu thật, hoặc cho biết tính năng này không có API "
     "(trả lời tự do theo ý bạn, ví dụ \"không có API\", \"tính năng này thuần UI\"... đều được, không cần đúng khuôn mẫu)."
 )
 MISSING_API_RESPONSE_QUESTION = (

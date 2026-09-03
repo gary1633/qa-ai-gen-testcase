@@ -4,6 +4,7 @@ model:
   name: "gemini-3.6-flash"
   temperature: 0.1
   max_tokens: 8192
+  request_timeout_seconds: 120  # Ngưỡng chờ tối đa mỗi lượt gọi LLM; hết giờ sẽ tự retry thay vì treo vô thời hạn
 
 qa_rules:
   min_review_score: 95

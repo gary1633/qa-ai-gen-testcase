@@ -4,9 +4,9 @@ Hệ thống **Multi-Agent AI Workflow** tự động hóa toàn bộ quy trình
 
 ---
 
-## 🌟 8 Kỹ Thuật Thiết Kế Kiểm Thử Chuẩn Quốc Tế (ISTQB Multi-Technique)
+## 🌟 9 Kỹ Thuật Thiết Kế Kiểm Thử Chuẩn Quốc Tế (ISTQB Multi-Technique & Business Flow)
 
-Hệ thống áp dụng đồng thời **8 kỹ thuật kiểm thử chuyên sâu** nhằm đạt số lượng từ **30 đến 50+ Test Cases chi tiết** cho mỗi tính năng, đảm bảo độ bao phủ (coverage) toàn diện:
+Hệ thống áp dụng đồng thời **9 kỹ thuật kiểm thử chuyên sâu** (8 kỹ thuật ISTQB kỹ thuật/API + 1 kỹ thuật Business Flow đánh giá tác động nghiệp vụ thực tế) nhằm đạt số lượng từ **30 đến 50+ Test Cases chi tiết** cho mỗi tính năng, đảm bảo độ bao phủ (coverage) toàn diện cả về kỹ thuật lẫn nghiệp vụ:
 
 | # | Kỹ Thuật Kiểm Thử | Trọng Tâm & Quy Chuẩn Áp Dụng | Kịch Bản Tiêu Biểu |
 | :- | :--- | :--- | :--- |
@@ -18,6 +18,7 @@ Hệ thống áp dụng đồng thời **8 kỹ thuật kiểm thử chuyên sâ
 | **6** | **Tiêm lỗi & Khả năng Phục hồi (Fault Injection)** | • Giả lập `HTTP 504 Gateway Timeout` từ đối tác -> Chuyển trạng thái `PENDING_RECONCILIATION`.<br>• Rollback toàn bộ giao dịch khi hook phụ bị lỗi giữa chừng. | Kiểm tra xử lý treo và đưa vào đối soát khi nhận mã lỗi `"504 Gateway Timeout"` từ Napas |
 | **7** | **Độ chính xác Số học & Pháp chế (Compliance)** | • Quy tắc làm tròn *Banker's Rounding (Round-half-even)*.<br>• Lãi suất năm nhuận (365 vs 366 ngày), bóc tách thuế VAT (8%, 10%).<br>• Bắt buộc xác thực Sinh trắc học theo QĐ 2345/QĐ-NHNN. | Kiểm tra bắt buộc Face matching với chip CCCD khi chuyển tiền vượt hạn mức `"10,000,000"` VND |
 | **8** | **Bảo mật & Ký tự Đặc biệt (Security Testing)** | • Xử lý ký tự Unicode / Tiếng Việt có dấu / Emoji trong trường ghi chú.<br>• Ngăn chặn Payload Injection (`<script>`, SQL injection, Schema poisoning).<br>• Phân quyền RBAC (User thường cố gọi API Admin). | Kiểm tra hệ thống sanitize và bắt lỗi khi truyền chuỗi HTML/SQL injection trong trường `"note"` |
+| **9** | **Luồng Nghiệp vụ Đầu-cuối & Tác động Đa bên (Business Flow)** | • Trạng thái/kết quả nghiệp vụ thực tế sau hành động (số dư, sổ cái, tồn kho, vòng đời đối tượng) — không chỉ dừng ở response API.<br>• Hệ quả tới các góc nhìn liên quan có căn cứ trong tài liệu (Khách hàng, Dữ liệu/Sổ sách, Tích hợp/Hạ tầng, Pháp chế). | Kiểm tra số dư khả dụng tài khoản nguồn giảm đúng `"500,000"` VND và tài khoản đích tăng đúng số tiền tương ứng sau khi giao dịch chuyển tiền hoàn tất |
 
 ---
 
@@ -30,7 +31,7 @@ flowchart TD
     C -->|Bóc tách AC, Invariants, QĐ 2345 & Ma trận RBT| CG{Thiếu API sample / message?}
     CG -- Có, và User chưa waive --> STOP[🛑 Hard-Stop Clarification Gate<br/>Hỏi lại User qua CLI / Slack, KHÔNG tự bịa]
     STOP -.User trả lời tự do, không cần đúng khuôn mẫu.-> C
-    CG -- Không / đã được waive --> D[Node 2: Scenario Designer - 8 ISTQB Techniques]
+    CG -- Không / đã được waive --> D[Node 2: Scenario Designer - 9 Kỹ thuật ISTQB & Business Flow]
     D -->|Ma trận 30 - 50+ Kịch bản chuyên sâu| E[Node 3: Testcase Generator - Paced Batching]
     E -->|Test Cases 14 cột: Title chuẩn ngoặc kép & Nhúng Body JSON vào Steps| F[Node 4: QA Gatekeeper & Banking Linter]
     F --> G{Đạt chuẩn QA Gate?}
@@ -192,7 +193,7 @@ docker-compose up -d --build
 qa-agentic-workflow/
 ├── prompts/                   # 📝 QUẢN LÝ PROMPTS (PROMPT-AS-CODE - Dễ dàng tùy biến & tinh chỉnh)
 │   ├── 01_requirement_analyst.md    # System Prompt: Phân tích yêu cầu & Ma trận RBT
-│   ├── 02_scenario_designer.md      # System Prompt: Thiết kế 8 Kỹ thuật ISTQB (30-50+ Scenarios)
+│   ├── 02_scenario_designer.md      # System Prompt: Thiết kế 9 Kỹ thuật ISTQB & Business Flow (30-50+ Scenarios)
 │   ├── 03_testcase_generator.md     # System Prompt: Sinh Test Case 14 cột & Nhúng JSON Steps
 │   └── 04_qa_reviewer.md            # System Prompt: QA Gatekeeper & Banking Quality Auditor
 ├── docs/                      # Thư mục lưu trữ tài liệu yêu cầu (PRD, Specs, Schemas)
@@ -251,4 +252,4 @@ Toàn bộ System Prompt của các Agent đã được tách biệt hoàn toàn
 ```bash
 python tests/test_components.py
 ```
-*(Kiểm tra toàn diện 11 bộ test: File Parsers, QA Domain Linter, Excel Exporter Template, LangGraph Workflow Compilation, Agent LLM Invocation Contracts, Multi-Domain Support, Linter Dead-Checks Regression, New QA Capabilities, Hard-Stop Clarification Gate, QA Gate Status Reporting, và Slack Thread-Context Memory)*.
+*(Kiểm tra toàn diện 14 bộ test: File Parsers, QA Domain Linter, Excel Exporter Template, LangGraph Workflow Compilation, Agent LLM Invocation Contracts, Multi-Domain Support, Linter Dead-Checks Regression, New QA Capabilities, Hard-Stop Clarification Gate, QA Gate Status Reporting, Slack Thread-Context Memory, Slack Quality Gate Failure Visibility, Raw-Content Grounding, và LLM Request Timeout)*.

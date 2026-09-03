@@ -18,7 +18,7 @@ from src.utils.file_parsers import extract_input_content
 from src.utils.excel_exporter import export_test_cases_to_excel
 from src.core.workflow import build_qa_agentic_graph
 from src.core.llm import load_qa_rules, load_config
-from src.core.prompt_loader import resolve_domain_pack, load_domain_pack
+from src.core.prompt_loader import resolve_domain_pack, load_domain_pack, load_prompt
 
 
 def test_file_parser():
@@ -482,6 +482,10 @@ def test_new_qa_capabilities():
     assert resolve_domain_pack("E-Commerce & Retail (Cart, Checkout)") == "ecommerce-retail"
     assert resolve_domain_pack("Một tính năng nội bộ không rõ ngành") == "api-platform"
     assert "Double-Entry" in load_domain_pack("FinTech & Banking")
+    assert "Bypass Phong tỏa" in load_domain_pack("FinTech & Banking") and "Hạn mức Thấu chi (OD)" in load_domain_pack("FinTech & Banking")
+    assert "CROSS-COMPONENT BUSINESS INTERACTION" in load_prompt("02_scenario_designer")
+    assert "CROSS-FEATURE / CROSS-COMPONENT BUSINESS LOGIC" in load_prompt("03_testcase_generator")
+    assert "tính năng phụ thuộc/tương tác với cơ chế nghiệp vụ" in load_prompt("01_requirement_analyst")
     print("  -> Domain Pack routing chọn đúng pack theo từ khóa và fallback 'api-platform' khi không khớp!")
 
     # 6. Phantom AC Reference at TestCase level (Scope Drift Guard): TC trỏ tới AC không tồn tại trong analysis
@@ -548,6 +552,21 @@ def test_clarification_gate():
     assert detect_missing_artifacts(free_form_waiver) == [], detect_missing_artifacts(free_form_waiver)
     qna_style_waiver = bare + " Message: N/A. API: not applicable."
     assert detect_missing_artifacts(qna_style_waiver) == [], detect_missing_artifacts(qna_style_waiver)
+
+    # 1g. Dán nguyên lệnh cURL thật (không phải văn bản "POST /path") -> phía REQUEST phải được coi là ĐỦ,
+    #     KHÔNG được hỏi lại MISSING_API_REQUEST_QUESTION (bug: trước đây regex chỉ nhận "METHOD /path",
+    #     bỏ sót cú pháp cURL thật -X POST + URL đầy đủ -> Agent cứ hỏi API hoài dù User đã cung cấp).
+    curl_only = bare + ''' curl -X POST https://api.bank.com/v1/withdraw -H "Content-Type: application/json" -d '{"amount": 1000000}' '''
+    curl_issues = detect_missing_artifacts(curl_only)
+    assert MISSING_API_REQUEST_QUESTION not in curl_issues, curl_issues
+    assert MISSING_API_RESPONSE_QUESTION in curl_issues, curl_issues
+    # cURL không kèm -X (mặc định GET) vẫn phải được nhận diện là 1 request cụ thể
+    curl_bare_get = bare + " curl https://api.bank.com/v1/accounts/123"
+    assert MISSING_API_REQUEST_QUESTION not in detect_missing_artifacts(curl_bare_get)
+    # cURL + response mẫu đầy đủ -> hết sạch câu hỏi API (chỉ còn message nếu tài liệu chưa nêu)
+    curl_full = curl_only + ' Response trả về HTTP 200 kèm thông báo "Rút tiền thành công". Trường hợp lỗi trả về HTTP 400 mã lỗi CV_043 kèm thông báo "Giao dịch thất bại".'
+    assert detect_missing_artifacts(curl_full) == [], detect_missing_artifacts(curl_full)
+    print("  -> A real cURL command alone already satisfies the API REQUEST requirement; Agent no longer loops asking for it!")
 
     gated_default = apply_clarification_gate(RequirementAnalysis(feature_name="X"), bare)
     assert gated_default.needs_user_clarification is True and len(gated_default.clarification_questions) == 4
@@ -673,6 +692,157 @@ def test_slack_thread_context_memory():
     assert slack_bot._get_pending_context(context_key) is None, "Context must be cleared once the workflow fully resolves!"
     print("  -> Clarification reply correctly merged with original ticket; thread context cleared once resolved!")
 
+def test_slack_gate_failure_visibility():
+    """
+    Kiểm chứng 2 bug đã sửa trong `slack_bot.py`:
+    1. Vòng lặp Feedback Loop phải đọc `max_review_iterations` LIVE từ config.yaml (qua `load_qa_rules()`),
+       KHÔNG được hardcode `max_iterations = 4` lệch với config (gây bất nhất hành vi CLI vs Slack).
+    2. Khi Quality Gate CHƯA ĐẠT sau khi hết vòng lặp, tin nhắn tổng hợp gửi lên Slack PHẢI liệt kê
+       chi tiết issue Critical/Major (Target TC, mô tả, đề xuất sửa) - trước đây chỉ báo chung chung
+       "CHƯA ĐẠT (còn issue mức Major chưa xử lý)" khiến User không biết phải sửa/hỏi gì.
+    """
+    print("\n[12/12] Testing Slack Quality Gate Failure Visibility (Config-Driven Retries & Issue Detail)...")
+    from unittest.mock import patch
+    import src.integrations.slack_bot as slack_bot
+    from src.agents.testcase_generator import TestCaseGenerationResult
+
+    slack_bot._pending_thread_context.clear()
+    expected_max_iter = load_qa_rules()["max_review_iterations"]
+
+    class FakeClient:
+        def __init__(self):
+            self.posted = []
+        def chat_postMessage(self, **kwargs):
+            self.posted.append(kwargs)
+            return {"ts": "999.999"}
+        def chat_update(self, **kwargs):
+            return {"ts": kwargs.get("ts")}
+        def files_upload_v2(self, **kwargs):
+            pass
+
+    client = FakeClient()
+    gen_calls = []
+
+    def fake_generate_test_cases(**kwargs):
+        gen_calls.append(1)
+        return TestCaseGenerationResult(test_cases=[TestCase(testcase_id="TC 01", title="x")], clarification_questions=[])
+
+    stuck_issue = ReviewIssue(target_tc_id="TC 01", severity="Major", issue_type="Business Logic Gap",
+                               description="Chua ro PIB bypass co dung tiep han muc OD hay khong",
+                               suggested_fix="Lam ro quy tac tuong tac giua Blockade va OD")
+    always_failing = ReviewResult(passed=False, score=96, issues=[stuck_issue])
+
+    with patch("src.integrations.slack_bot.analyze_requirements", return_value=RequirementAnalysis(feature_name="Bypass Phong toa")), \
+         patch("src.integrations.slack_bot.design_test_scenarios", return_value=[TestScenario(scenario_id="SC-01", scenario_title="x", technique="EP")]), \
+         patch("src.integrations.slack_bot.generate_test_cases", side_effect=fake_generate_test_cases), \
+         patch("src.integrations.slack_bot.review_and_lint_test_suite", return_value=always_failing), \
+         patch("src.integrations.slack_bot.export_test_cases_to_excel", return_value=None):
+        slack_bot.run_workflow_in_background(client, "C123", "222.222", ["Yeu cau nghiep vu Bypass phong toa CASA/OD"], None)
+
+    assert len(gen_calls) == expected_max_iter, f"Expected exactly {expected_max_iter} generation attempts (config-driven), got {len(gen_calls)}"
+
+    summary_calls = [p for p in client.posted if "blocks" in p]
+    assert len(summary_calls) == 1, "Expected exactly 1 final summary message with Block Kit blocks"
+    all_block_text = " ".join(
+        b.get("text", {}).get("text", "")
+        for p in summary_calls for b in p["blocks"] if b.get("type") == "section"
+    )
+    assert "TC 01" in all_block_text and "Lam ro quy tac tuong tac" in all_block_text, \
+        "Unresolved Major issue detail (target TC + suggested fix) must be visible in the Slack summary!"
+    print("  -> Feedback loop uses config-driven max_review_iterations, and unresolved Major issue detail is surfaced in Slack summary!")
+
+
+
+def test_raw_content_grounding():
+    """
+    Kiểm chứng bug cố định: tài liệu gốc (raw_content) do User cung cấp phải được nhúng
+    nguyên văn vào prompt của Scenario Designer và Test Case Generator, không chỉ dựa vào
+    bản tóm tắt Requirement Analysis - để tránh Agent tự bịa field/API sample không có trong tài liệu.
+    """
+    print("\n[13/13] Testing Raw-Content Grounding (Scenario Designer & Test Case Generator)...")
+    from unittest.mock import patch
+    from src.agents.scenario_designer import design_test_scenarios, ScenarioListResponse
+    from src.agents.testcase_generator import generate_test_cases, BatchTestSuiteResponse
+
+    analysis = RequirementAnalysis(feature_name="X", banking_domain="Y")
+    sentinel = "SENTINEL_RAW_DOC_MARKER_curl -X POST /napas/transfer -d amount=499999000"
+
+    with patch("src.agents.scenario_designer.invoke_structured_llm") as mock_sc:
+        mock_sc.return_value = ScenarioListResponse(scenarios=[TestScenario(scenario_id="SC-01", scenario_title="x", technique="EP")])
+        design_test_scenarios(analysis, raw_content=sentinel, provider="gemini")
+        assert sentinel in mock_sc.call_args.kwargs["user_prompt"], "Scenario Designer prompt did not include the raw source document!"
+
+    with patch("src.agents.testcase_generator.invoke_structured_llm") as mock_gen:
+        mock_gen.return_value = BatchTestSuiteResponse(test_cases=[TestCase(testcase_id="TC 01", title="x")])
+        generate_test_cases(analysis, [TestScenario(scenario_id="SC-01", scenario_title="x", technique="EP")], raw_content=sentinel, provider="gemini")
+        assert sentinel in mock_gen.call_args.kwargs["user_prompt"], "Test Case Generator prompt did not include the raw source document!"
+
+    print("  -> Both agents forward the raw source document verbatim into their LLM prompts!")
+
+def test_llm_request_timeout():
+    """
+    Kiểm chứng bug cố định: trước đây get_llm() không set timeout cho bất kỳ Provider nào, nên nếu
+    Provider không phản hồi (không phải lỗi 429 rate-limit), lệnh gọi treo VÔ THỜI HẠN và không có cơ
+    chế retry/backoff nào can thiệp được (vì không exception nào được raise ra để bắt).
+    Nay get_llm() PHẢI luôn set timeout mặc định từ config.yaml (`model.request_timeout_seconds`),
+    và invoke_structured_llm() PHẢI tự động retry khi gặp lỗi timeout rồi raise rõ ràng nếu vẫn treo
+    sau khi hết lượt retry - tuyệt đối không được treo vô thời hạn.
+    """
+    print("\n[14/14] Testing LLM Request Timeout (Provider Hang Prevention)...")
+    from unittest.mock import patch, MagicMock
+    from src.core import llm as llm_module
+
+    default_timeout = llm_module.load_config()["model"]["request_timeout_seconds"]
+
+    # 1. get_llm() phải luôn set timeout mặc định từ config.yaml cho MỌI provider (không None).
+    google_llm = llm_module.get_llm(provider="gemini", api_key="x")
+    assert google_llm.timeout == default_timeout, "Provider Google phải nhận timeout mặc định từ config.yaml!"
+    openai_llm = llm_module.get_llm(provider="openai", api_key="x")
+    assert openai_llm.request_timeout == default_timeout, "Provider OpenAI-compatible phải nhận timeout mặc định!"
+    anthropic_llm = llm_module.get_llm(provider="anthropic", api_key="x")
+    assert anthropic_llm.default_request_timeout == default_timeout, "Provider Anthropic phải nhận timeout mặc định!"
+
+    # Override tường minh vẫn phải được tôn trọng.
+    custom_llm = llm_module.get_llm(provider="gemini", api_key="x", request_timeout=7)
+    assert custom_llm.timeout == 7, "request_timeout override phải được áp dụng đúng!"
+
+    # 2. invoke_structured_llm() phải tự retry khi gặp lỗi timeout, thay vì raise/treo ngay lần đầu.
+    class FlakyStructuredLLM:
+        def __init__(self):
+            self.call_count = 0
+        def invoke(self, messages):
+            self.call_count += 1
+            if self.call_count == 1:
+                raise TimeoutError("Deadline Exceeded: request timed out")
+            return ReviewResult(passed=True, score=99)
+
+    flaky = FlakyStructuredLLM()
+    fake_llm = MagicMock()
+    fake_llm.with_structured_output.return_value = flaky
+
+    with patch.object(llm_module, "get_llm", return_value=fake_llm), \
+         patch.object(llm_module.time, "sleep", return_value=None):
+        result = llm_module.invoke_structured_llm(
+            system_prompt="sys", user_prompt="usr", schema=ReviewResult, provider="gemini", max_retries=3
+        )
+    assert result.score == 99 and flaky.call_count == 2, "invoke_structured_llm phải tự retry khi gặp lỗi timeout, không được raise ngay lập tức!"
+
+    # 3. Nếu timeout xảy ra liên tục hết cả max_retries -> PHẢI raise rõ ràng, không được treo vô thời hạn.
+    class AlwaysTimeoutLLM:
+        def invoke(self, messages):
+            raise TimeoutError("Read timed out")
+
+    always_timeout_llm = MagicMock()
+    always_timeout_llm.with_structured_output.return_value = AlwaysTimeoutLLM()
+    with patch.object(llm_module, "get_llm", return_value=always_timeout_llm), \
+         patch.object(llm_module.time, "sleep", return_value=None):
+        try:
+            llm_module.invoke_structured_llm(system_prompt="sys", user_prompt="usr", schema=ReviewResult, provider="gemini", max_retries=2)
+            assert False, "Phải raise lỗi timeout sau khi hết max_retries, tuyệt đối không được treo vô thời hạn!"
+        except TimeoutError:
+            pass
+
+    print("  -> get_llm() luôn set request timeout cho mọi Provider; invoke_structured_llm() tự retry rồi raise rõ ràng thay vì treo vô thời hạn!")
 
 
 if __name__ == "__main__":
@@ -687,4 +857,7 @@ if __name__ == "__main__":
     test_clarification_gate()
     test_gate_status_reporting()
     test_slack_thread_context_memory()
+    test_slack_gate_failure_visibility()
+    test_raw_content_grounding()
+    test_llm_request_timeout()
     print("\n✅ All component tests PASSED!")

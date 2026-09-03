@@ -2,6 +2,7 @@
 
 ## Bất biến nghiệp vụ
 - `Số dư Khả dụng = Số dư Thực - Số tiền Phong tỏa + Hạn mức Thấu chi`.
+- `Bypass Phong tỏa (Blockade Override)` chỉ tạm thời bỏ qua bước CHẶN giao dịch do phong tỏa gây ra — KHÔNG làm thay đổi công thức Số dư Khả dụng ở trên: giao dịch vượt Số dư Thực (sau khi trừ phần đang phong tỏa) khi đang bypass vẫn phải tuân theo đúng quy tắc sử dụng Hạn mức Thấu chi (OD) như giao dịch bình thường, trừ khi tài liệu nêu rõ ngoại lệ khác.
 - `Tổng phát sinh Nợ GL = Tổng phát sinh Có GL` (Cân bằng hạch toán kép - Double-Entry Debit/Credit).
 - `Zero Double-Debit`: Không bao giờ trừ tiền 2 lần cho cùng một giao dịch chuyển tiền/thanh toán (chỉ áp dụng khi tài liệu/API có cơ chế `idempotency_key`).
 - `Auditability`: Mọi thay đổi cấu hình tham số hoặc trạng thái tài khoản đều phải có bản ghi Audit Log (Ai sửa, lúc nào, giá trị cũ/mới).
@@ -42,3 +43,4 @@
 - Boundary Value Analysis trên hạn mức và mốc thời gian EOD.
 - Financial Calculation & Rounding (Banker's Rounding, VAT split, 365/366 ngày).
 - Decision Table cho Thứ tự Ưu tiên Thu nợ (khi sản phẩm là Vay/Thấu chi có nhiều Job giờ trong ngày): Dimensions = Khung giờ Job x Trạng thái Khoản vay -> Thứ tự thu đúng theo bảng "Biên & giá trị đặc thù"; test riêng case Job 12h không được lẫn Gốc vào danh sách thu.
+- Kiểm thử tương tác Phong tỏa (Blockade) x Số dư Thực (CASA) x Hạn mức Thấu chi (OD) x Cờ Bypass (chỉ áp dụng khi tài liệu có đề cập đồng thời các thành phần này): PHẢI kiểm tra tổ hợp (1) giao dịch vượt Số dư Thực nhưng còn Hạn mức OD trong lúc bypass đang bật — có được tự động dùng tiếp OD hay không; (2) giao dịch vượt cả Số dư Thực lẫn Hạn mức OD trong lúc bypass đang bật — có bị từ chối đúng quy tắc hay không; (3) Số tiền Phong tỏa được tính trừ vào phần OD hay chỉ trừ vào Số dư Thực gốc.

@@ -18,8 +18,8 @@ flowchart TD
     end
 
     subgraph Agentic_Pipeline ["Agentic Pipeline - LangGraph StateGraph"]
-        A1["Node 1: Requirement Analyst Agent<br/>(Bộ 7 Kỹ năng & Ma trận RBT)"]
-        A2["Node 2: Test Scenario Designer Agent<br/>(8 Kỹ thuật ISTQB & Pairwise Matrix)"]
+        A1["Node 1: Requirement Analyst Agent<br/>(Bộ 8 Kỹ năng & Ma trận RBT)"]
+        A2["Node 2: Test Scenario Designer Agent<br/>(9 Kỹ thuật ISTQB & Business Flow, Pairwise Matrix)"]
         A3["Node 3: Test Case Generator Agent<br/>(Paced Batching & Field-Level Checklist)"]
         A4["Node 4: QA Gatekeeper & Reviewer Agent<br/>(Bidirectional Traceability & Linter)"]
     end
@@ -56,7 +56,7 @@ flowchart TD
 
 ---
 
-## 2. Node 1: Bộ 7 Kỹ Năng Phân Tích Yêu Cầu (Requirement Analysis Framework)
+## 2. Node 1: Bộ 8 Kỹ Năng Phân Tích Yêu Cầu (Requirement Analysis Framework)
 
 Cơ chế bóc tách yêu cầu chuyên sâu, chống suy diễn (Anti-Hallucination) và bao phủ 100% nghiệp vụ:
 
@@ -66,7 +66,7 @@ flowchart LR
         RAW["Raw Story / PRD / API Spec"]
     end
 
-    subgraph Skills_Group ["Bộ 7 Kỹ Năng Phân Tích Cốt Lõi"]
+    subgraph Skills_Group ["Bộ 8 Kỹ Năng Phân Tích Cốt Lõi"]
         K1["1. Explicit Grounding<br/>(Confirmed Facts vs Assumptions vs Gaps)"]
         K2["2. 360° Boundary Discovery<br/>(Min/Max, Bands, Leap Year, Lifecycle)"]
         K3["3. Multi-Stakeholder Analysis<br/>(Client, Ledger, Gateway, Compliance)"]
@@ -74,6 +74,7 @@ flowchart LR
         K5["5. Testability & Prerequisites<br/>(Mock Napas, Mock Core, Seed Data)"]
         K6["6. 100% Traceability Mapping<br/>(Gán mã chuẩn AC-xx, BR-xx)"]
         K7["7. RBT Product Risk Matrix<br/>(Likelihood x Impact = Risk Score)"]
+        K8["8. Multi-Source Cross-Reference<br/>(Mapping US + BRD/SRS + Figma + API Spec)"]
     end
 
     subgraph Output_Group ["Output Báo Cáo Phân Tích"]
@@ -87,6 +88,7 @@ flowchart LR
     RAW --> K5
     RAW --> K6
     RAW --> K7
+    RAW --> K8
 
     K1 --> OUT
     K2 --> OUT
@@ -95,11 +97,12 @@ flowchart LR
     K5 --> OUT
     K6 --> OUT
     K7 --> OUT
+    K8 --> OUT
 ```
 
 ---
 
-## 3. Node 2: Thiết Kế Ma Trận Kịch Bản Đa Kỹ Thuật (8 ISTQB Techniques & Pairwise Matrix)
+## 3. Node 2: Thiết Kế Ma Trận Kịch Bản Đa Kỹ Thuật (9 ISTQB & Business-Flow Techniques + Pairwise Matrix)
 
 Đảm bảo độ dày kịch bản kiểm thử đạt **30 đến 50+ Test Cases** cho mỗi tính năng:
 
@@ -107,7 +110,7 @@ flowchart LR
 flowchart TD
     REQ["Requirement Analysis & RBT Matrix"] --> SD["Node 2: Scenario Designer"]
 
-    subgraph Techniques_Group ["Hệ Thống 8 Kỹ Thuật ISTQB & Rút Gọn Toán Học"]
+    subgraph Techniques_Group ["Hệ Thống 9 Kỹ Thuật ISTQB & Business Flow"]
         T1["1. Equivalence Partitioning (EP)<br/>Whitelist Enum, Missing Fields, Type Mismatch"]
         T2["2. Boundary Value Analysis (BVA 2/3-Value)<br/>Min-1, Min, Max, Max+1, Overlap/Gap Bands"]
         T3["3. Decision Table & Pairwise Testing<br/>Rút gọn tổ hợp đa chiều (144 combos còn 16-20 combos)"]
@@ -116,6 +119,7 @@ flowchart TD
         T6["6. Error Guessing & Fault Injection<br/>Napas 504 Timeout -> Pending Recon, Rollback"]
         T7["7. Financial Calculation & Compliance<br/>Banker's Rounding, Lãi năm nhuận, QĐ 2345 (Nếu có quy định)"]
         T8["8. API Functional & RBAC Matrix<br/>Happy Path, Negative Validation, Auth 401/403, Pagination"]
+        T9["9. Business Flow & End-to-End Impact<br/>Số dư/Sổ cái/Tồn kho thực tế, Hệ quả đa bên (Khách hàng/Sổ sách/Tích hợp/Pháp chế)"]
     end
 
     SD --> T1
@@ -126,6 +130,7 @@ flowchart TD
     SD --> T6
     SD --> T7
     SD --> T8
+    SD --> T9
 
     T1 --> MATRIX["High-Density Test Scenario Matrix (30 - 50+ Scenarios)<br/>Đầy đủ: Trace AC, Trace Risk, Group 14 Cột, Title có ngoặc kép"]
     T2 --> MATRIX
@@ -135,6 +140,7 @@ flowchart TD
     T6 --> MATRIX
     T7 --> MATRIX
     T8 --> MATRIX
+    T9 --> MATRIX
 ```
 
 ---

@@ -34,9 +34,15 @@ ASSERTION_REGEX = re.compile(
 QUOTED_TEXT_REGEX = re.compile(r"[\"“]([^\"”\n]{12,200})[\"”]")
 MESSAGE_CUE_REGEX = re.compile(r"(message|msg|thông\s+báo|nội\s+dung\s+thông\s+báo)\W{0,20}$", re.IGNORECASE)
 
-TECHNIQUE_NAME_PATTERNS = ("bva", "boundary value analysis", "equivalence partitioning", "ep", "decision table", "state transition", "pairwise")
+TECHNIQUE_NAME_PATTERNS = ("bva", "boundary value analysis", "equivalence partitioning", "ep", "decision table", "state transition", "pairwise", "business flow", "end-to-end impact")
 
 AC_ID_REGEX = re.compile(r"\bAC-\d+\b", re.IGNORECASE)
+
+# Mã lỗi nghiệp vụ dạng "CV_051", "ERR_2345" (chữ hoa + underscore + số) đi kèm cue "Mã lỗi"/"Error code"
+# ngay trước đó trong tài liệu gốc -> đây là các nguyên nhân từ chối RIÊNG BIỆT bắt buộc mỗi mã phải có
+# ít nhất 1 Test Case Negative assert tới, KHÔNG được gộp chung/bỏ sót khi tài liệu liệt kê tường minh.
+ERROR_CODE_REGEX = re.compile(r"\b[A-Z]{2,6}_\d{3,6}\b")
+ERROR_CODE_CUE_REGEX = re.compile(r"(mã\s*lỗi|error\s*code|error\s*:)", re.IGNORECASE)
 
 
 def lint_test_case(tc: TestCase) -> List[ReviewIssue]:
@@ -290,6 +296,33 @@ def _fabricated_message_issues(analysis: RequirementAnalysis, test_cases: List[T
             ))
     return issues
 
+def _enumerated_error_code_issues(all_tc_text: str, raw_content: str) -> List[ReviewIssue]:
+    """
+    Phát hiện các mã lỗi nghiệp vụ được tài liệu gốc liệt kê TƯỜNG MINH (đi kèm cue "Mã lỗi"/"Error code")
+    nhưng KHÔNG hề được bất kỳ Test Case nào assert tới. Đây là lỗ hổng bao phủ ở mức macro (AC đã có Test
+    Case) nhưng thiếu ở mức vi mô (một trong nhiều nguyên nhân từ chối riêng biệt của chính AC đó bị bỏ sót
+    khi Generator chỉ lấy mẫu một phần danh sách liệt kê thay vì sinh đủ cho TỪNG mã).
+    """
+    if not raw_content:
+        return []
+    documented_codes = set()
+    for m in ERROR_CODE_REGEX.finditer(raw_content):
+        cue_window = raw_content[max(0, m.start() - 60):m.start()]
+        if ERROR_CODE_CUE_REGEX.search(cue_window):
+            documented_codes.add(m.group(0).upper())
+
+    missing_codes = {c for c in documented_codes if c.lower() not in all_tc_text}
+    if not missing_codes:
+        return []
+    return [ReviewIssue(
+        target_tc_id=None,
+        issue_type="Enumeration Under-Coverage (Missing Error Code)",
+        severity="Critical",
+        description=f"Tài liệu gốc liệt kê rõ (các) mã lỗi/nguyên nhân từ chối riêng biệt sau nhưng KHÔNG có Test Case nào assert tới: {', '.join(sorted(missing_codes))}.",
+        suggested_fix="Bổ sung 1 Test Case Negative RIÊNG BIỆT cho MỖI mã lỗi còn thiếu ở trên (tài liệu yêu cầu tách biệt theo từng nguyên nhân, không được gộp chung hay bỏ sót)."
+    )]
+
+
 
 def lint_test_suite_coverage(analysis: RequirementAnalysis, test_cases: List[TestCase], *, raw_content: str = "") -> List[ReviewIssue]:
     """
@@ -352,6 +385,7 @@ def lint_test_suite_coverage(analysis: RequirementAnalysis, test_cases: List[Tes
     all_tc_text = " ".join([f"{tc.title} {tc.steps} {tc.expected_result} {tc.test_data}" for tc in test_cases]).lower()
     pack = resolve_domain_pack(analysis.banking_domain, analysis.feature_name)
     issues.extend(DOMAIN_RULES[pack](analysis, all_tc_text))
+    issues.extend(_enumerated_error_code_issues(all_tc_text, raw_content))
 
     # 5. MULTI-TECHNIQUE DIVERSITY CHECK: Đảm bảo bộ test suite có tính đa dạng kỹ thuật (Không chỉ có Happy path)
     has_bva = bool(BOUNDARY_REGEX.search(all_tc_text))
@@ -425,6 +459,14 @@ def lint_scenarios(analysis: RequirementAnalysis, scenarios: List[TestScenario])
             severity="Major",
             description="Ma trận kịch bản thiếu kỹ thuật Boundary Value Analysis bắt buộc theo prompts/02.",
             suggested_fix="Bổ sung kịch bản gán testing_technique = 'Boundary Value Analysis'."
+        ))
+    if "business flow" not in technique_text and "end-to-end impact" not in technique_text:
+        issues.append(ReviewIssue(
+            target_tc_id=None,
+            issue_type="Technique Under-Coverage (Business Flow)",
+            severity="Major",
+            description="Ma trận kịch bản chỉ dừng ở validate API/schema, thiếu kỹ thuật Business Flow / End-to-End Impact bắt buộc theo prompts/02 (kiểm tra tác động và kết quả nghiệp vụ thực tế sau hành động, không chỉ response kỹ thuật).",
+            suggested_fix="Bổ sung ít nhất 1 kịch bản gán testing_technique = 'Business Flow / End-to-End Impact', kiểm tra trạng thái/số liệu nghiệp vụ thực tế (số dư, sổ cái, tồn kho, vòng đời đối tượng...) và hệ quả tới các góc nhìn liên quan có căn cứ trong tài liệu."
         ))
 
     # 3. Format Violation: Tên kỹ thuật hàn lâm bị lộ vào group_functional / scenario_title

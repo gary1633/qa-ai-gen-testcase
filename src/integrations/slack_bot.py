@@ -12,6 +12,7 @@ from src.agents.requirement_analyst import analyze_requirements
 from src.agents.scenario_designer import design_test_scenarios
 from src.agents.testcase_generator import generate_test_cases
 from src.agents.reviewer import review_and_lint_test_suite, gate_failure_reasons
+from src.core.llm import load_qa_rules
 from src.utils.excel_exporter import export_test_cases_to_excel
 load_dotenv()
 
@@ -150,14 +151,14 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_sour
         steps[1] = "• ⏳ *[2/5] Node 2: Đang thiết kế ma trận kịch bản kiểm thử (ISTQB & Banking)...*"
         client.chat_update(channel=channel_id, ts=progress_ts, text=render_progress_text(steps))
         # --- NODE 2: Scenario Design ---
-        scenarios = design_test_scenarios(analysis=analysis)
+        scenarios = design_test_scenarios(analysis=analysis, raw_content=content)
         
         steps[1] = f"• ✅ *[2/5] Node 2: Thiết kế xong* (Thiết kế {len(scenarios)} kịch bản: BVA, Idempotency, QĐ 2345)"
         steps[2] = "• ⏳ *[3/5] Node 3: Đang sinh Test Case chi tiết 14 cột với Payload Core Banking...*"
         client.chat_update(channel=channel_id, ts=progress_ts, text=render_progress_text(steps))
 
         # --- NODE 3: Test Case Generation & Feedback Loop ---
-        max_iterations = 4
+        max_iterations = load_qa_rules()["max_review_iterations"]
         current_iter = 0
         review_result = None
         test_cases = []
@@ -167,7 +168,8 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_sour
             gen = generate_test_cases(
                 analysis=analysis,
                 scenarios=scenarios,
-                review_feedback=review_result
+                review_feedback=review_result,
+                raw_content=content
             )
             test_cases = gen.test_cases
             pending_clarifications = gen.clarification_questions
@@ -264,6 +266,25 @@ def run_workflow_in_background(client, channel_id: str, thread_ts: str, raw_sour
             blocks.append({
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": rbt_text}
+            })
+
+        # Hiển thị chi tiết các issue Critical/Major CHƯA xử lý sau khi hết vòng lặp sửa lỗi
+        # (trước đây Slack chỉ báo "CHƯA ĐẠT (còn issue mức Major)" mà không cho biết issue gì / TC nào -> User không biết phải sửa gì hoặc hỏi gì).
+        if review_result and not review_result.passed and review_result.issues:
+            unresolved = [i for i in review_result.issues if i.severity in ("Critical", "Major")] or review_result.issues
+            issues_text = f"*🚫 Chi tiết {len(unresolved)} Issue Chưa Xử Lý (Quality Gate CHƯA ĐẠT sau {current_iter} vòng lặp):*\n"
+            for iss in unresolved[:6]:
+                sev_emoji = "🔴" if iss.severity == "Critical" else "🟠"
+                issues_text += (
+                    f"{sev_emoji} *[{iss.target_tc_id or 'All Suite'}]* `{iss.severity}` - {iss.issue_type}\n"
+                    f"   _{iss.description[:200]}_\n"
+                    f"   -> *Đề xuất sửa:* {iss.suggested_fix[:200]}\n"
+                )
+            if len(unresolved) > 6:
+                issues_text += f"_... và {len(unresolved) - 6} issue khác, xem đầy đủ trong file Excel đính kèm._\n"
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": issues_text}
             })
 
         # Gửi summary blocks vào thread

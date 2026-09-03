@@ -84,7 +84,7 @@ class TestScenario(BaseModel):
     trace_risk_id: Optional[str] = Field(default=None, description="Mã rủi ro RBT gắn với kịch bản này (vd: RSK-01)")
     category: str = Field(
         default="Positive (Happy Path)", 
-        description="Phân loại kịch bản kiểm thử (Positive, Negative, Boundary, Security, Concurrency, Exception, State Transition, Business Invariants...)"
+        description="Phân loại kịch bản kiểm thử (Positive, Negative, Boundary, Security, Concurrency, Exception, State Transition, Business Invariants, Business Flow / End-to-End Impact...)"
     )
     group_feature: str = Field(
         default="1. Chức năng chính (AC-01)",
@@ -97,7 +97,7 @@ class TestScenario(BaseModel):
     scenario_title: str = Field(default="Kịch bản kiểm thử", description="Tiêu đề kịch bản kiểm thử rõ ràng")
     testing_technique: str = Field(
         default="Equivalence Partitioning", 
-        description="Kỹ thuật kiểm thử áp dụng (Equivalence Partitioning, Boundary Value Analysis, Decision Table, State Transition, Concurrency, Fault Injection, Domain Invariants, etc.)"
+        description="Kỹ thuật kiểm thử áp dụng (Equivalence Partitioning, Boundary Value Analysis, Decision Table, State Transition, Concurrency, Fault Injection, Domain Invariants, Business Flow / End-to-End Impact, etc.)"
     )
     test_intent: str = Field(default="", description="Ý đồ kiểm thử")
     priority: Literal["Critical", "High", "Medium", "Low"] = Field(default="High", description="Mức độ ưu tiên kiểm thử")

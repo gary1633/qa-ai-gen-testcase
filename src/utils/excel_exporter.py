@@ -189,6 +189,7 @@ def export_test_cases_to_excel(
     current_row = 22
     current_group_feature = None
     current_group_functional = None
+    first_tc_row = None  # Neo dòng đầu tiên của bộ Test Case, dùng cho công thức tự đánh số cột A
 
     for tc in test_cases:
         # Gom nhóm L1: Group Feature
@@ -220,10 +221,11 @@ def export_test_cases_to_excel(
                     cell.alignment = Alignment(vertical="center", horizontal="left")
             current_row += 1
 
-        # Ghi 14 cột của Test Case
         # Ghi 14 cột của Test Case (Format đẹp các khối JSON)
+        if first_tc_row is None:
+            first_tc_row = current_row
         row_values = [
-            tc.testcase_id,
+            f'=IF(B{current_row}<>"", "TC " & TEXT(ROW()-ROW($B${first_tc_row})+1, "00"), "")',
             tc.title,
             tc.preconditions,
             format_cell_json_text(tc.steps),

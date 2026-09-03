@@ -55,6 +55,7 @@ def scenario_designer_node(state: QAWorkflowState) -> Dict[str, Any]:
     analysis = state["requirement_analysis"]
     scenarios = design_test_scenarios(
         analysis=analysis,
+        raw_content=state.get("input_raw_text", ""),
         provider=state.get("llm_provider"),
         model_name=state.get("llm_model_name"),
         base_url=state.get("llm_base_url"),
@@ -83,6 +84,7 @@ def testcase_generator_node(state: QAWorkflowState) -> Dict[str, Any]:
         analysis=analysis,
         scenarios=scenarios,
         review_feedback=state.get("review_result"),
+        raw_content=state.get("input_raw_text", ""),
         provider=state.get("llm_provider"),
         model_name=state.get("llm_model_name"),
         base_url=state.get("llm_base_url"),

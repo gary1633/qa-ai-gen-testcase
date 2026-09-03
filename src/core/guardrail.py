@@ -29,7 +29,7 @@ NONSENSE_PATTERNS = [
 
 SPEC_INDICATORS = [
     "acceptance criteria", "ac:", "ac1", "ac2", "ac 1", "ac 2", "user story", "given", "when",
-    "then", "mô tả", "mục tiêu", "yêu cầu", "endpoint", "request", "response", "payload",
+    "then", "mô tả", "mục tiêu", "yêu cầu", "endpoint", "request", "response", "payload", "curl",
     "quy định", "post /", "get /", "put /", "patch /", "delete /", "status code", "mã lỗi",
     "http 200", "http 400", "http 500",
 ] + [kw for _, keywords in DOMAIN_PACK_KEYWORDS for kw in keywords]

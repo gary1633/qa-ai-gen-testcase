@@ -75,12 +75,14 @@ def get_llm(
     model_name: Optional[str] = None,
     temperature: float = 0.1,
     base_url: Optional[str] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    request_timeout: Optional[float] = None
 ) -> BaseChatModel:
     """
     Universal LLM Factory khởi tạo Chat Model cho bất kỳ Provider nào.
     """
     config = load_config().get("model", {})
+    target_timeout = request_timeout or config.get("request_timeout_seconds") or 120
     target_provider = detect_provider(provider, model_name)
     
     # 1. GOOGLE GEMINI
@@ -93,6 +95,7 @@ def get_llm(
             temperature=temperature,
             google_api_key=target_key,
             max_output_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 2. OPENAI
@@ -107,6 +110,7 @@ def get_llm(
             api_key=target_key,
             base_url=target_base_url,
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 3. ANTHROPIC CLAUDE
@@ -119,6 +123,7 @@ def get_llm(
             temperature=temperature,
             api_key=target_key,
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 4. DEEPSEEK
@@ -133,6 +138,7 @@ def get_llm(
             api_key=target_key,
             base_url=target_base_url,
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 5. OPENROUTER
@@ -146,6 +152,7 @@ def get_llm(
             api_key=target_key,
             base_url="https://openrouter.ai/api/v1",
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 6. OLLAMA / LOCAL LLM
@@ -159,6 +166,7 @@ def get_llm(
             api_key="ollama",
             base_url=target_base_url,
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
     # 7. CUSTOM / VLLM / AZURE / OTHER OPENAI-COMPATIBLE
@@ -173,6 +181,7 @@ def get_llm(
             api_key=target_key,
             base_url=target_base_url,
             max_tokens=8192,
+            timeout=target_timeout,
         )
 
 
@@ -196,11 +205,14 @@ def invoke_structured_llm(
     temperature: float = 0.1,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
-    max_retries: int = 4
+    max_retries: int = 4,
+    request_timeout: Optional[float] = None
 ) -> T:
     """
     Gọi LLM với Structured Output ép kiểu theo Pydantic schema trên bất kỳ Provider nào.
-    Tích hợp cơ chế tự động xử lý Rate Limit 429 (Resource Exhausted) và Fallback thông minh.
+    Tích hợp cơ chế tự động xử lý Rate Limit 429 (Resource Exhausted), Timeout mạng và Fallback thông minh.
+    Mỗi request LLM có giới hạn thời gian chờ (`request_timeout`, mặc định lấy từ `configs/config.yaml` -> `model.request_timeout_seconds`,
+    hoặc 120s nếu không cấu hình) để KHÔNG BAO GIỜ treo vô thời hạn khi provider không phản hồi.
     """
     active_model = model_name or os.getenv("GEMINI_MODEL_NAME") or "gemini-3.6-flash"
     
@@ -216,7 +228,8 @@ def invoke_structured_llm(
                 model_name=active_model,
                 temperature=temperature,
                 base_url=base_url,
-                api_key=api_key
+                api_key=api_key,
+                request_timeout=request_timeout
             )
             structured_llm = llm.with_structured_output(schema)
             result = structured_llm.invoke(messages)
@@ -224,8 +237,16 @@ def invoke_structured_llm(
 
         except Exception as e:
             err_str = str(e)
+            exc_name = type(e).__name__.lower()
             is_429 = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "rate limit" in err_str.lower()
-            
+            is_timeout = (
+                isinstance(e, TimeoutError)
+                or "timeout" in exc_name
+                or "timeout" in err_str.lower()
+                or "timed out" in err_str.lower()
+                or "deadline exceeded" in err_str.lower()
+            )
+
             # Nếu chạm giới hạn Free Tier ngày của gemini-3.7-flash -> Fallback ngay sang gemini-3.6-flash
             if is_429 and ("gemini-3.7-flash" in active_model or "GenerateRequestsPerDay" in err_str):
                 print(f"⚠️ [Rate Limit] Model '{active_model}' chạm hạn mức Free Tier. Tự động chuyển sang 'gemini-3.6-flash'...")
@@ -237,5 +258,8 @@ def invoke_structured_llm(
                 wait_time = _extract_retry_seconds(err_str)
                 print(f"⏳ [Rate Limit 429] Đạt ngưỡng giới hạn request của AI. Tự động chờ {wait_time}s rồi thử lại (Lần {attempt}/{max_retries})...")
                 time.sleep(wait_time)
+            elif is_timeout and attempt < max_retries:
+                print(f"⏳ [Timeout] Provider '{active_model}' không phản hồi trong thời gian cho phép. Tự động thử lại (Lần {attempt}/{max_retries})...")
+                time.sleep(3)
             else:
                 raise e
