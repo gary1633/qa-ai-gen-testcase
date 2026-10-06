@@ -27,7 +27,10 @@ RUN pip install --no-cache-dir uv && \
     python-dotenv \
     requests \
     slack-bolt \
-    slack-sdk
+    slack-sdk \
+    fastapi \
+    uvicorn \
+    python-multipart
 
 COPY . .
 

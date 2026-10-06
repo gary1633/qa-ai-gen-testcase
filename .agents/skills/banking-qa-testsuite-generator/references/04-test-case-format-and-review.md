@@ -152,8 +152,27 @@ trong quá trình test thật, không thuộc phạm vi thiết kế test case c
 ### 3. Bao phủ rủi ro RBT & đa kỹ thuật
 - 100% rủi ro `Critical` và `High` trong ma trận RBT (Bước 2) phải có test case trực diện để triệt
   tiêu rủi ro.
-- Rà lại đã áp dụng đủ các kỹ thuật thực tế phù hợp chưa: BVA, EP, Pairwise, Concurrency,
-  Idempotency (nếu API hỗ trợ), Fault Injection.
+- Rà lại đã áp dụng đủ các kỹ thuật thực tế phù hợp chưa: BVA, EP, Pairwise, Concurrency (khi tính
+  năng làm biến động số dư/dư nợ), Idempotency (nếu API hỗ trợ), Fault Injection (timeout khi có
+  gọi đối tác/gateway).
+- Đối chiếu mục "Kỹ thuật bắt buộc nhấn mạnh" của `05-banking-domain-pack/core.md` và từng module đã
+  nạp. Checklist có điều kiện — CHỈ kiểm khi tài liệu in-scope nhắc tới chủ đề ở cột trái:
+
+  | Tài liệu nhắc tới | Bộ test case phải có |
+  |-------------------|----------------------|
+  | chuyển tiền / thanh toán / rút / trừ tiền / giải ngân / thu nợ / tất toán / hoàn tiền / phong tỏa | gửi trùng hoặc 2 giao dịch đồng thời trên cùng tài khoản |
+  | Napas / CITAD / SWIFT / QR / gateway / đối tác / tổ chức thẻ | đối tác timeout (504) → chờ đối soát, không trừ 2 lần |
+  | sinh trắc học / QĐ 2345 | xác thực sinh trắc dưới/chạm/vượt ngưỡng và thất bại |
+  | hạn mức giao dịch ngày/tháng/lũy kế | vừa chạm, vượt 1 VND, giao dịch làm lũy kế vượt |
+  | hạch toán / bút toán / sổ cái | cặp bút toán Nợ/Có cân bằng (và bút toán đảo khi lỗi) |
+  | thu nợ / trả nợ | tiền chỉ đủ một phần → phân bổ đúng thứ tự, số còn lại từng cấu phần |
+  | nhóm nợ / chuyển nhóm / DPD | ngưỡng-1, ngưỡng, ngưỡng+1 số ngày quá hạn |
+  | thấu chi / OD | dùng vừa hết hạn mức, vượt hạn mức, hạn mức hết hiệu lực/bị giảm |
+  | PIN | sai N-1 lần, N lần (khóa), đúng sau khi khóa |
+  | số thẻ / PAN / CVV | PAN được che trên mọi bề mặt, CVV không xuất hiện |
+  | cấp phép / tạm giữ | reversal và cấp phép hết hạn được giải tỏa |
+  | rút / tất toán trước hạn | lãi suất áp dụng khi rút trước hạn |
+  | đáo hạn / tái tục | trước/đúng/sau ngày đáo hạn, đáo hạn rơi vào ngày nghỉ |
 - Không yêu cầu test case tấn công mạng/SQL Injection trừ khi tài liệu có yêu cầu bảo mật riêng.
 
 ### 4. Tính xác định & kiểm chứng được (Determinism)

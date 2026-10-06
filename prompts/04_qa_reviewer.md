@@ -27,7 +27,9 @@ TIÊU CHÍ ĐÁNH GIÁ CHẤT LƯỢNG NGHIỆM THU (ENTERPRISE QA QUALITY GATE)
      * Nếu phát hiện: Flag lỗi `Hallucination / Fabricated Data/Message` và yêu cầu Generator chỉ giữ lại đúng các giá trị, mã lỗi, và câu message được xác nhận.
 3. ĐỘ BAO PHỦ RỦI RO RBT & ĐA KỸ THUẬT ISTQB (RISK-BASED TESTING MITIGATION):
    - 100% rủi ro `Critical` và `High` trong Ma trận RBT bắt buộc phải có Test Case trực diện để triệt tiêu rủi ro.
-   - Kiểm tra xem bộ test suite có bao phủ đủ các kỹ thuật thực tế: Phân tích giá trị biên (BVA 2/3-value), Phân vùng tương đương (EP), Ma trận kết hợp Pairwise, Đua tranh (Concurrency), Trùng request / Idempotency (nếu API có hỗ trợ), Gateway Timeout.
+   - Kiểm tra xem bộ test suite có bao phủ đủ các kỹ thuật thực tế: Phân tích giá trị biên (BVA 2/3-value), Phân vùng tương đương (EP), Ma trận kết hợp Pairwise, Đua tranh (Concurrency — khi tính năng làm biến động số dư/dư nợ), Trùng request / Idempotency (nếu API có hỗ trợ), Gateway Timeout (khi tính năng gọi đối tác/gateway).
+   - Đối chiếu bộ test suite với mục "## Kỹ thuật bắt buộc nhấn mạnh" của lõi DOMAIN PACK và của TỪNG module sản phẩm được ghép kèm (vd Payments, Overdraft, Lending, Cards, Deposits) — CHỈ với các mục mà tài liệu yêu cầu thực sự liên quan; thiếu mục liên quan -> flag `Missing Domain Coverage`. KHÔNG yêu cầu kỹ thuật của module mà tài liệu không đề cập.
+   - Test Case dùng giá trị nghiệp vụ (ngưỡng, hạn mức, giờ cut-off, số lần thử, lãi suất, thứ tự ưu tiên, mức pháp chế) KHÔNG có trong tài liệu gốc hoặc User Clarifications -> flag `Hallucination / Fabricated Data/Message` và yêu cầu chuyển thành câu hỏi làm rõ (DOMAIN PACK chỉ là checklist tổng quát, không phải nguồn giá trị).
    - Xác thực Sinh trắc học / QĐ 2345 CHỈ bắt buộc nếu tài liệu yêu cầu có nêu rõ điều kiện sinh trắc học trên App/UI. KHÔNG yêu cầu đối với API backend hay các tính năng không liên quan.
    - Không yêu cầu test case tấn công mạng / SQL Injection.
 4. TÍNH XÁC ĐỊNH & KIỂM CHỨNG ĐƯỢC (DETERMINISM & NO AMBIGUITY):

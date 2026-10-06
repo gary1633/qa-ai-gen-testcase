@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
@@ -62,6 +61,12 @@ class RequirementAnalysis(BaseModel):
     def domain_invariants(self) -> List[str]:
         return self.banking_invariants
 
+    @property
+    def scope_text(self) -> str:
+        """Nội dung in-scope (tên tính năng, tổng quan, AC) dùng để chọn module domain pack và gate linter."""
+        ac_text = " ".join(f"{ac.title} {ac.description} {' '.join(ac.business_rules)}" for ac in self.acceptance_criteria)
+        return f"{self.feature_name} {self.business_overview} {ac_text}"
+
     acceptance_criteria: List[AcceptanceCriterion] = Field(default_factory=list, description="Danh sách Acceptance Criteria bóc tách được")
     product_risks: List[ProductRisk] = Field(default_factory=list, description="Ma trận rủi ro sản phẩm (RBT)")
     compliance_rules: List[ComplianceRule] = Field(default_factory=list, description="Các quy định pháp chế / tiêu chuẩn tuân thủ cần kiểm tra")
@@ -88,11 +93,11 @@ class TestScenario(BaseModel):
     )
     group_feature: str = Field(
         default="1. Chức năng chính (AC-01)",
-        description="Tên nhóm phân cấp lớn (Row 22)"
+        description="Tên nhóm phân cấp lớn (banner tím đậm ngay trên nhóm test case)"
     )
     group_functional: str = Field(
         default="1.1. Luồng xử lý thành công",
-        description="Tên nhóm phân cấp con (Row 23)"
+        description="Tên nhóm phân cấp con (banner tím nhạt ngay trên nhóm test case)"
     )
     scenario_title: str = Field(default="Kịch bản kiểm thử", description="Tiêu đề kịch bản kiểm thử rõ ràng")
     testing_technique: str = Field(
@@ -111,19 +116,14 @@ class TestCase(BaseModel):
     group_feature: str = Field(default="1. Chức năng chính (AC-01)", description="Nhóm tính năng lớn tương ứng")
     group_functional: str = Field(default="1.1. Luồng xử lý thành công", description="Nhóm functional con tương ứng")
     title: str = Field(default="Test case", description="Tên testcase mô tả hành động, điều kiện và rủi ro phòng ngừa")
-    preconditions: str = Field(default="Hệ thống và dữ liệu sẵn sàng.", description="Điều kiện tiên quyết trước khi thực hiện test")
+    preconditions: str = Field(default="Hệ thống và dữ liệu sẵn sàng.", description="Điều kiện tiên quyết trước khi thực hiện test (ghi ở đầu cột 'Các bước thực hiện')")
     steps: str = Field(default="1. Thực hiện gửi request\n2. Kiểm tra phản hồi", description="Các bước thực hiện đánh số: '1. ...\n2. ...'")
     expected_result: str = Field(default="HTTP Status 200 OK, xử lý thành công.", description="Kết quả mong đợi chi tiết kiểm chứng được")
-    actual_result: str = Field(default="", description="Kết quả thực tế (để trống)")
     test_data: str = Field(default="{}", description="Dữ liệu test cụ thể (Payload JSON, tham số, dữ liệu đầu vào thực tế)")
-    creator: str = Field(default="QA Automation Specialist", description="Người tạo")
-    test_date: str = Field(default_factory=lambda: datetime.now().strftime("%d/%m/%Y"), description="Ngày tạo/test định dạng DD/MM/YYYY")
     test_status: Literal["Not Test", "Passed", "Failed", "Blocked", "Not Executed"] = Field(
         default="Not Test", description="Trạng thái test ban đầu"
     )
     priority: Literal["Critical", "High", "Medium", "Low"] = Field(default="High", description="Mức độ ưu tiên")
-    plan_execution: str = Field(default="Sprint Release", description="Kế hoạch thực thi")
-    executed_date: str = Field(default="", description="Ngày thực thi (để trống)")
     note: str = Field(default="", description="Ghi chú, Trace ID, Risk ID, Jira Link")
 
     @property
@@ -153,3 +153,8 @@ class ReviewResult(BaseModel):
     traceability_matrix: List[TraceabilityItem] = Field(default_factory=list, description="Ma trận truy vết 2 chiều giữa ACs và Test Cases")
     issues: List[ReviewIssue] = Field(default_factory=list, description="Danh sách các lỗi cần khắc phục")
     feedback_summary: str = Field(default="Bộ test case đạt chuẩn chất lượng.", description="Nhận xét tổng quan và báo cáo Traceability Matrix")
+
+
+class ClarificationAnswer(BaseModel):
+    question: str = Field(default="", description="Nguyên văn câu hỏi làm rõ mà Agent đã hỏi User")
+    answer: str = Field(default="", description="Nguyên văn (hoặc tóm tắt trung thành) câu trả lời của User cho câu hỏi đó")

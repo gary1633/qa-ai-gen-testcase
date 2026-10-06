@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Optional
 from src.core.models import RequirementAnalysis
 
 PENDING_CLARIFICATION_MARKER = "PENDING CLARIFICATION"
@@ -57,6 +57,12 @@ MISSING_ERROR_MESSAGE_QUESTION = (
     "(trả lời tự do theo ý bạn, không cần đúng khuôn mẫu)."
 )
 
+# Dòng nhắc lại câu hỏi đã hỏi User trong khối User Clarifications của phiên hội thoại
+# (`QASession.compose_requirement`). Câu hỏi mẫu chứa cụm "không có API"/"chưa quy định message" —
+# phải loại khỏi phần quét xác định, nếu không chính câu hỏi sẽ bị hiểu nhầm là User đã miễn trừ.
+ASKED_QUESTION_PREFIX = "- Hỏi: "
+ASKED_QUESTION_LINE_REGEX = re.compile(r"^[ \t]*" + re.escape(ASKED_QUESTION_PREFIX) + r".*$", re.MULTILINE)
+
 
 def _has_message_cue_near(text: str, outcome_regex: re.Pattern, window: int = 80) -> bool:
     """True nếu có một từ khóa message/thông báo/mã lỗi nằm gần (trong `window` ký tự) một từ khóa
@@ -92,7 +98,7 @@ def detect_missing_artifacts(raw_content: str) -> List[str]:
     Message — áp dụng chung cho mọi loại tài liệu (kể cả UI): BẮT BUỘC phải rõ CẢ message/mã cho
     luồng THÀNH CÔNG lẫn luồng THẤT BẠI/LỖI — thiếu bên nào hỏi riêng bên đó.
     """
-    text = raw_content or ""
+    text = ASKED_QUESTION_LINE_REGEX.sub("", raw_content or "")
     questions: List[str] = []
 
     api_waived = _is_waived(text, API_HINT_REGEX) or bool(ONLY_UI_REGEX.search(text))
@@ -114,14 +120,36 @@ def detect_missing_artifacts(raw_content: str) -> List[str]:
     return questions
 
 
-def apply_clarification_gate(analysis: RequirementAnalysis, raw_content: str) -> RequirementAnalysis:
-    """Hợp nhất câu hỏi xác định vào analysis và BẮT BUỘC bật cờ chặn nếu còn dữ kiện thiếu."""
+def apply_clarification_gate(
+    analysis: RequirementAnalysis,
+    raw_content: str,
+    prior_questions: Optional[List[str]] = None,
+) -> RequirementAnalysis:
+    """Hợp nhất câu hỏi xác định (deterministic) vào analysis.
+
+    - Nếu đây là vòng phân tích ĐẦU TIÊN (`prior_questions` rỗng/None): mọi câu hỏi deterministic
+      còn thiếu BẮT BUỘC được thêm vào, y hệt hành vi cũ (an toàn tuyệt đối cho tài liệu lần đầu).
+    - Nếu một câu hỏi deterministic đã từng được hỏi User ở VÒNG TRƯỚC (`q in prior_questions`):
+      KHÔNG tự động nhét lại nữa — lúc này trọng tài là chính LLM, vì nó đã đọc TOÀN BỘ nội dung
+      đã gộp (bao gồm câu trả lời tự do của User) với ngữ cảnh tường minh (xem prompt). Nếu LLM tự
+      quyết định giữ lại câu hỏi đó trong `analysis.clarification_questions`, ta tôn trọng; nếu LLM
+      đã loại bỏ, ta cũng tôn trọng — quy tắc regex không còn là tiếng nói cuối cùng cho các điểm
+      ĐÃ từng qua 1 vòng hỏi-đáp.
+    - Nếu là một khoảng trống HOÀN TOÀN MỚI (chưa từng hỏi ở vòng trước, chỉ lộ ra sau khi gộp thêm
+      nội dung): vẫn BẮT BUỘC thêm vào như cũ.
+
+    `detect_missing_artifacts`/`_is_waived` và mọi regex giữ nguyên không đổi — đây vẫn là lưới an
+    toàn strict, bắt buộc cho mọi tài liệu vòng đầu.
+    """
     deterministic = detect_missing_artifacts(raw_content)
-    if deterministic:
-        merged = list(analysis.clarification_questions)
-        for q in deterministic:
-            if q not in merged:
-                merged.append(q)
-        analysis.clarification_questions = merged
-        analysis.needs_user_clarification = True
+    merged = list(analysis.clarification_questions)
+    for q in deterministic:
+        if q in merged:
+            continue
+        if prior_questions and q in prior_questions:
+            # Đã hỏi ở vòng trước -> để LLM tự phán quyết (không ép buộc thêm lại).
+            continue
+        merged.append(q)
+    analysis.clarification_questions = merged
+    analysis.needs_user_clarification = bool(analysis.clarification_questions)
     return analysis

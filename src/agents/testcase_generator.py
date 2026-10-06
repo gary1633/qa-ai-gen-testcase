@@ -38,7 +38,7 @@ def _generate_single_batch(
     Prompt được nạp động từ file Markdown: prompts/03_testcase_generator.md.
     """
     system_prompt = load_composite("03_testcase_generator", "shared/severity_priority_rubric")
-    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name, analysis.scope_text)
 
     scenarios_text = ""
     for idx, sc in enumerate(scenario_batch, start=start_tc_num):
@@ -76,7 +76,7 @@ TÀI LIỆU GỐC DO USER CUNG CẤP (THAM KHẢO TRỰC TIẾP ĐỂ LẤY CHÍ
 ================================================================================
 {raw_content or "(Không có tài liệu gốc đính kèm ngoài bản phân tích trên)"}
 
-HÃY SINH TOÀN BỘ TEST CASE CHI TIẾT 14 CỘT DỮ LIỆU + 2 DÒNG BANNER PHÂN CẤP CHO {len(scenario_batch)} KỊCH BẢN SAU ĐÂY:
+HÃY SINH TOÀN BỘ TEST CASE CHI TIẾT (ĐỦ CÁC TRƯỜNG THEO TEMPLATE) + 2 DÒNG BANNER PHÂN CẤP CHO {len(scenario_batch)} KỊCH BẢN SAU ĐÂY:
 {scenarios_text}
 
 {feedback_prompt}
@@ -119,7 +119,7 @@ def _generate_supplementary_testcases(
 ) -> BatchTestSuiteResponse:
     """Sinh bổ sung các Test Case đặc thù khi Reviewer phát hiện thiếu độ bao phủ hoặc thiếu kỹ thuật."""
     system_prompt = load_composite("03_testcase_generator", "shared/severity_priority_rubric")
-    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name, analysis.scope_text)
     issues_desc = "\n".join([f"- {iss.issue_type} ({iss.severity}): {iss.description} -> Yêu cầu: {iss.suggested_fix}" for iss in coverage_issues])
     existing_groups_text = "\n".join([f"- {g}" for g in (existing_group_features or [])]) or "(Bộ suite hiện chưa có nhóm nào)"
 
@@ -148,7 +148,7 @@ BỘ TEST SUITE HIỆN TẠI ĐANG THIẾU CÁC KỊCH BẢN KIỂM THỬ QUAN T
 {issues_desc}
 
 YÊU CẦU THỰC HIỆN:
-1. Hãy sinh BỔ SUNG ĐẦY ĐỦ các test case chi tiết 14 cột dữ liệu + 2 dòng banner phân cấp tương ứng để triệt tiêu 100% các thiếu sót trên.
+1. Hãy sinh BỔ SUNG ĐẦY ĐỦ các test case chi tiết (đủ các trường theo template) + 2 dòng banner phân cấp tương ứng để triệt tiêu 100% các thiếu sót trên.
 2. Bắt đầu từ mã: "TC {start_tc_num:02d}".
 3. Đặt tiêu đề theo đúng chuẩn: "Kiểm tra ... thành công khi ..." / "Kiểm tra ... không thành công khi ...", BỌC DẤU NGOẶC KÉP `""` CHO TÊN TRƯỜNG VÀ GIÁ TRỊ.
 4. Expected Result định lượng rõ ràng: HTTP Status, JSON response, mã lỗi nghiệp vụ, biến động số dư.
@@ -271,14 +271,20 @@ def generate_test_cases(
             all_test_cases.extend(supp.test_cases)
             all_questions.extend(q for q in supp.clarification_questions if q not in all_questions)
 
-    # Đảm bảo mã testcase_id liên tục, duy nhất và title không chứa mã Jira ticket
-    for idx, tc in enumerate(all_test_cases, start=1):
+    return finalize_test_suite(all_test_cases, all_questions)
+
+
+def finalize_test_suite(test_cases: List[TestCase], questions: List[str]) -> TestCaseGenerationResult:
+    """Chuẩn hóa bộ test case cuối: mã `TC NN` liên tục/duy nhất, title không chứa mã Jira, và luôn
+    có ít nhất 1 câu hỏi nếu còn test case mang marker PENDING CLARIFICATION."""
+    questions = list(dict.fromkeys(questions))
+    for idx, tc in enumerate(test_cases, start=1):
         tc.testcase_id = f"TC {idx:02d}"
         tc.title = clean_jira_key_from_title(tc.title)
 
-    if any(PENDING_CLARIFICATION_MARKER in (tc.note or "") for tc in all_test_cases) and not all_questions:
-        all_questions.append(
+    if any(PENDING_CLARIFICATION_MARKER in (tc.note or "") for tc in test_cases) and not questions:
+        questions.append(
             "Có test case được đánh dấu PENDING CLARIFICATION nhưng chưa nêu câu hỏi cụ thể. "
             "Vui lòng xác nhận API sample / message chính xác cho các test case này."
         )
-    return TestCaseGenerationResult(test_cases=all_test_cases, clarification_questions=all_questions)
+    return TestCaseGenerationResult(test_cases=test_cases, clarification_questions=questions)

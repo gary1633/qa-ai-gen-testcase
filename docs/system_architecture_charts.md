@@ -30,7 +30,7 @@ flowchart TD
     end
 
     subgraph Output_Layer ["Output & Integration Layer"]
-        O1["Excel Exporter (14 Cột, Logo, Biểu đồ động)"]
+        O1["Excel Exporter (Template phiếu kiểm thử, công thức thống kê động)"]
         O2["Xray Test Management (JSON Payload)"]
         O3["Jira External System Import (CSV)"]
         O4["Slack Bot 24/7 (Real-time Thread & File Upload)"]
@@ -147,7 +147,7 @@ flowchart TD
 
 ## 4. Node 3: Cơ Chế Sinh Test Case (Paced Batching & Field-Level Checklist)
 
-Quy trình sinh Test Case 14 cột với cơ chế chia lô chống lỗi Rate Limit (429) và nhúng trực tiếp Body JSON:
+Quy trình sinh Test Case theo cột template phiếu kiểm thử với cơ chế chia lô chống lỗi Rate Limit (429) và nhúng trực tiếp Body JSON:
 
 ```mermaid
 flowchart TD
@@ -200,7 +200,7 @@ flowchart TD
         L2["Placeholder Check (Cấm 'some data', 'dữ liệu bất kỳ')"]
         L3["Expected Result Determinism (Định lượng rõ mã HTTP, JSON, số dư)"]
         L4["Numbered Steps Check (Bắt buộc đánh số 1. 2. 3.)"]
-        L5["Banking Domain Linter (Kiểm tra Idempotency & QĐ 2345)"]
+        L5["Banking Domain Linter (rule theo module, chỉ bật khi yêu cầu nhắc chủ đề: Concurrency, Gateway Timeout, QĐ 2345, Hạn mức, Bút toán, Thu nợ, Nhóm nợ, OD, PIN, Che PAN, Cấp phép, Tiền gửi)"]
     end
 
     subgraph Layer2_Traceability ["Tầng 2: Bidirectional Traceability & Drift Detection"]

@@ -22,7 +22,6 @@ qa_rules:
     - "thông báo tương ứng"
 
 excel:
-  template_path: "EF_TestCases.xlsx"   # Template chuẩn có logo và biểu đồ
-  base_sheet_name: "EF_BLOCKADE_SA"
+  template_path: "template/Template Test Execution .xlsx"   # Template phiếu kiểm thử mặc định (tương đối theo thư mục dự án)
   default_app_name: "Core TM / Edge Function"
   default_version: "0.0.1"

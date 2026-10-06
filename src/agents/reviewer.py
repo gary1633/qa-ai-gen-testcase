@@ -30,7 +30,7 @@ def review_and_lint_test_suite(
     Prompt được nạp động từ file Markdown: prompts/04_qa_reviewer.md + prompts/shared/severity_priority_rubric.md.
     """
     system_prompt = load_composite("04_qa_reviewer", "shared/severity_priority_rubric")
-    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name)
+    domain_pack = load_domain_pack(analysis.banking_domain, analysis.feature_name, analysis.scope_text)
 
     # 1. Chạy Deterministic Linter (Test Case level + Scenario level)
     static_issues: List[ReviewIssue] = []

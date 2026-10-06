@@ -12,3 +12,18 @@ services:
       - ./configs:/app/configs
     environment:
       - PYTHONUNBUFFERED=1
+
+  qa-web-gui:
+    build: .
+    container_name: qa_agentic_web_gui
+    restart: always
+    command: ["python", "web_run.py", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./outputs:/app/outputs
+      - ./configs:/app/configs
+    environment:
+      - PYTHONUNBUFFERED=1

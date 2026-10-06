@@ -30,6 +30,7 @@ class QAWorkflowState(TypedDict, total=False):
     scenarios: List[TestScenario]
     test_cases: List[TestCase]
     pending_clarifications: List[str]
+    prior_clarification_questions: List[str]
     review_result: Optional[ReviewResult]
     
     # Workflow Loop & Quality Control

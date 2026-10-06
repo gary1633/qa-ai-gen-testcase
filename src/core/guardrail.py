@@ -94,7 +94,7 @@ def get_help_guide() -> str:
 
 ⚠️ *Yêu cầu hiện tại chưa đủ thông tin nghiệp vụ để phân tích và sinh Test Case.*
 
-📋 *Để sinh bộ Test Suite chuẩn 14 cột (kèm ISTQB & Banking RBT Matrix), vui lòng cung cấp một trong các hình thức sau:*
+📋 *Để sinh bộ Test Suite chuẩn template phiếu kiểm thử (kèm ISTQB & Banking RBT Matrix), vui lòng cung cấp một trong các hình thức sau:*
 
 1️⃣ **Link hoặc Mã Jira Ticket:**
    • Ví dụ: `VWCBT-3648` hoặc `https://galaxyfinx.atlassian.net/browse/VWCBT-3648`

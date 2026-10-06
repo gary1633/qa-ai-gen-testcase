@@ -109,14 +109,9 @@ def main():
             preconditions="Tài khoản nguồn 1012345678 Active, số dư khả dụng >= 500,000 VND. Ngân hàng thụ hưởng Vietcombank (VCB) liên kết Napas.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 500,000 VND\n2. Kiểm tra HTTP Status Code và Response Body\n3. Kiểm tra biến động số dư tài khoản nguồn",
             expected_result="- HTTP Status: 200 OK\n- Response Body:\n{\n  \"status\": \"SUCCESS\",\n  \"trace_no\": \"NP20260824001\",\n  \"amount\": 500000,\n  \"fee\": 0,\n  \"total_debit\": 500000\n}\n- Số dư tài khoản nguồn bị trừ chính xác 500,000 VND.",
-            actual_result="",
             test_data="{\n  \"from_account\": \"1012345678\",\n  \"to_account\": \"9988776655\",\n  \"to_bank_code\": \"VCB\",\n  \"amount\": 500000,\n  \"remark\": \"Chuyen tien tieu dung\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-01 | RSK-01 (Financial Risk)"
         ),
         TestCase(
@@ -127,14 +122,9 @@ def main():
             preconditions="Tài khoản nguồn 1012345678 Active, số dư khả dụng >= 2,002,200 VND.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 2,000,000 VND\n2. Kiểm tra phí giao dịch và tổng tiền trừ tài khoản",
             expected_result="- HTTP Status: 200 OK\n- Response Body:\n{\n  \"status\": \"SUCCESS\",\n  \"amount\": 2000000,\n  \"fee\": 2200,\n  \"total_debit\": 2002200\n}\n- Số dư bị trừ: 2,002,200 VND (Gốc 2M + Phí 2.2k).",
-            actual_result="",
             test_data="{\n  \"from_account\": \"1012345678\",\n  \"to_account\": \"9988776655\",\n  \"to_bank_code\": \"VCB\",\n  \"amount\": 2000000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-01 | RSK-01 (Financial Risk)"
         ),
         TestCase(
@@ -145,14 +135,9 @@ def main():
             preconditions="Tài khoản nguồn hợp lệ. Mã ngân hàng thụ hưởng không hỗ trợ Napas (vd: FOREIGN_BANK).",
             steps="1. Gửi request POST /v1/transfer/napas247 với to_bank_code = 'FOREIGN_BANK'\n2. Kiểm tra mã lỗi trả về",
             expected_result="- HTTP Status: 400 Bad Request\n- Error Code: ERR_BANK_NOT_SUPPORTED\n- Error Message: 'Ngân hàng thụ hưởng không hỗ trợ kênh chuyển tiền nhanh 24/7.'",
-            actual_result="",
             test_data="{\n  \"from_account\": \"1012345678\",\n  \"to_account\": \"11223344\",\n  \"to_bank_code\": \"FOREIGN_BANK\",\n  \"amount\": 100000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Medium",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-01"
         ),
         TestCase(
@@ -163,14 +148,9 @@ def main():
             preconditions="Tài khoản nguồn Active, số dư khả dụng = 100,000 VND.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 100,000 VND (Yêu cầu phí 2,200 VND, tổng 102,200 VND)\n2. Kiểm tra thông báo lỗi",
             expected_result="- HTTP Status: 400 Bad Request\n- Error Code: ERR_INSUFFICIENT_BALANCE\n- Error Message: 'Số dư khả dụng không đủ để thực hiện giao dịch và thanh toán phí.'",
-            actual_result="",
             test_data="{\n  \"from_account\": \"1012345678\",\n  \"to_account\": \"9988776655\",\n  \"to_bank_code\": \"VCB\",\n  \"amount\": 1000000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-01"
         ),
 
@@ -183,14 +163,9 @@ def main():
             preconditions="Tài khoản nguồn Active, số dư khả dụng >= 100,000 VND.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 9999\n2. Kiểm tra mã lỗi và thông báo",
             expected_result="- HTTP Status: 400 Bad Request\n- Error Code: ERR_MIN_AMOUNT\n- Error Message: 'Số tiền chuyển tối thiểu là 10,000 VND'",
-            actual_result="",
             test_data="{\n  \"amount\": 9999\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02 | RSK-02 (Boundary Risk)"
         ),
         TestCase(
@@ -201,14 +176,9 @@ def main():
             preconditions="Tài khoản nguồn Active, số dư khả dụng >= 10,000 VND.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 10000\n2. Kiểm tra giao dịch thành công",
             expected_result="- HTTP Status: 200 OK\n- Trạng thái giao dịch: SUCCESS\n- Số tiền trừ: 10,000 VND (Miễn phí).",
-            actual_result="",
             test_data="{\n  \"amount\": 10000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02 | RSK-02 (Boundary Risk)"
         ),
         TestCase(
@@ -219,14 +189,9 @@ def main():
             preconditions="Tài khoản nguồn đủ số dư >= 500,002,200 VND. Đã xác thực sinh trắc học hợp lệ.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 500000000\n2. Kiểm tra giao dịch thành công",
             expected_result="- HTTP Status: 200 OK\n- Trạng thái giao dịch: SUCCESS\n- Phí: 2,200 VND\n- Tổng trừ: 500,002,200 VND.",
-            actual_result="",
             test_data="{\n  \"amount\": 500000000,\n  \"biometric_token\": \"BIO_VALID_TOKEN_999\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02 | RSK-02 (Boundary Risk)"
         ),
         TestCase(
@@ -237,14 +202,9 @@ def main():
             preconditions="Tài khoản nguồn Active, số dư lớn.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 500000001\n2. Kiểm tra mã lỗi từ chối",
             expected_result="- HTTP Status: 400 Bad Request\n- Error Code: ERR_MAX_PER_TXN\n- Error Message: 'Số tiền vượt quá hạn mức tối đa 500,000,000 VND / lần.'",
-            actual_result="",
             test_data="{\n  \"amount\": 500000001\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02 | RSK-02 (Boundary Risk)"
         ),
         TestCase(
@@ -255,14 +215,9 @@ def main():
             preconditions="Trong ngày đã chuyển tích lũy 1,000,000,000 VND. Số dư tài khoản khả dụng >= 500,002,200 VND.",
             steps="1. Thực hiện chuyển tiếp 500,000,000 VND (Tổng tích lũy đạt 1.5 tỷ VND)\n2. Kiểm tra kết quả giao dịch",
             expected_result="- HTTP Status: 200 OK\n- Giao dịch thành công\n- Tổng tích lũy trong ngày cập nhật: 1,500,000,000 VND.",
-            actual_result="",
             test_data="{\n  \"amount\": 500000000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02"
         ),
         TestCase(
@@ -273,14 +228,9 @@ def main():
             preconditions="Trong ngày đã chuyển tích lũy 1,490,000,000 VND.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 20,000,000 VND (Tổng tích lũy thành 1.51 tỷ)\n2. Kiểm tra mã lỗi từ chối",
             expected_result="- HTTP Status: 400 Bad Request\n- Error Code: ERR_DAILY_LIMIT_EXCEEDED\n- Error Message: 'Quý khách đã vượt quá hạn mức chuyển tiền trong ngày (1,500,000,000 VND).'",
-            actual_result="",
             test_data="{\n  \"amount\": 20000000\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-02 | RSK-02"
         ),
 
@@ -293,14 +243,9 @@ def main():
             preconditions="Tài khoản nguồn Active, số dư đủ. Request không truyền `biometric_token`.",
             steps="1. Gửi request POST /v1/transfer/napas247 với amount = 10,000,001 VND\n2. Kiểm tra phản hồi yêu cầu xác thực khuôn mặt",
             expected_result="- HTTP Status: 403 Forbidden\n- Error Code: ERR_BIOMETRIC_REQUIRED\n- Error Message: 'Giao dịch trên 10,000,000 VND bắt buộc xác thực sinh trắc học khuôn mặt.'",
-            actual_result="",
             test_data="{\n  \"amount\": 10000001\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-03 | RSK-03 (Security Risk)"
         ),
         TestCase(
@@ -311,14 +256,9 @@ def main():
             preconditions="Tài khoản nguồn Active. Đã Face matching thành công và nhận `biometric_token`.",
             steps="1. Gửi request POST /v1/transfer/napas247 kèm `biometric_token`\n2. Kiểm tra giao dịch thành công",
             expected_result="- HTTP Status: 200 OK\n- Status: SUCCESS\n- Biometric verified: TRUE.",
-            actual_result="",
             test_data="{\n  \"amount\": 15000000,\n  \"biometric_token\": \"BIO_FACE_MATCH_PASS_01\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="High",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-03 | RSK-03"
         ),
         TestCase(
@@ -329,14 +269,9 @@ def main():
             preconditions="Tài khoản nguồn Active. Đã xác thực Face matching sai 2 lần trước đó.",
             steps="1. Gửi request xác thực sinh trắc học lần thứ 3 với token không khớp\n2. Kiểm tra mã lỗi khóa tài khoản và thời gian chờ",
             expected_result="- HTTP Status: 403 Forbidden\n- Error Code: ERR_BIOMETRIC_LOCKED\n- Error Message: 'Quý khách đã xác thực không thành công 3 lần. Tính năng chuyển tiền tạm khóa trong 60 phút.'\n- Cờ `transfer_locked_until` được gán = NOW + 60 phút.",
-            actual_result="",
             test_data="{\n  \"amount\": 12000000,\n  \"biometric_token\": \"BIO_FACE_FAIL_3\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-03 | RSK-03 (Security Lockout)"
         ),
 
@@ -349,14 +284,9 @@ def main():
             preconditions="Mock Napas Gateway giả lập timeout 30s.",
             steps="1. Gửi request POST /v1/transfer/napas247\n2. Napas Gateway trả về 504 Timeout sau 30s\n3. Kiểm tra trạng thái giao dịch trên Core Banking",
             expected_result="- HTTP Status: 202 Accepted\n- Response Body:\n{\n  \"status\": \"PENDING_RECONCILIATION\",\n  \"message\": \"Giao dịch đang được xử lý đối soát, vui lòng không chuyển lại.\"\n}\n- Tiền chưa bị trừ vĩnh viễn, được phong tỏa tạm thời (HOLD).",
-            actual_result="",
             test_data="{\n  \"amount\": 5000000,\n  \"idempotency_key\": \"IDEMP_TIMEOUT_001\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-04 | RSK-04 (Timeout Risk)"
         ),
         TestCase(
@@ -367,14 +297,9 @@ def main():
             preconditions="Tài khoản nguồn có 10,000,000 VND. Gửi 2 request đồng thời qua đa luồng (Concurrency test).",
             steps="1. Gửi đồng thời 2 request POST /v1/transfer/napas247 với cùng 1 `idempotency_key`\n2. Kiểm tra phản hồi của Request 1 và Request 2\n3. Kiểm tra số dư tài khoản nguồn",
             expected_result="- Request 1: HTTP 200 OK (Giao dịch thành công)\n- Request 2: HTTP 409 Conflict hoặc trả về kết quả đã cached của Request 1\n- Tài khoản nguồn CHỈ BỊ TRỪ TIỀN 1 LẦN DUY NHẤT (5,002,200 VND).",
-            actual_result="",
             test_data="{\n  \"amount\": 5000000,\n  \"idempotency_key\": \"DUPLICATE_KEY_TEST_2026\"\n}",
-            creator="QA Agent (RBT)",
-            test_date="24/08/2026",
             test_status="Not Test",
             priority="Critical",
-            plan_execution="Sprint 1",
-            executed_date="",
             note="AC-04 | RSK-04 (Idempotency Risk)"
         )
     ]
@@ -384,7 +309,6 @@ def main():
     out_file = export_test_cases_to_excel(
         analysis=analysis,
         test_cases=test_cases,
-        template_path="EF_TestCases.xlsx",
         output_path=sample_output_path,
         target_sheet_name="Napas_247_Transfer"
     )

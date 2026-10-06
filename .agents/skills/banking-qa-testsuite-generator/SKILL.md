@@ -25,6 +25,11 @@ thể nào**. Chỉ cần tài liệu yêu cầu do User dán vào hội thoại
 `read` để mở các file tham chiếu trong thư mục `references/` của chính skill này khi tới bước
 tương ứng.
 
+Kỹ năng ở mức **tổng quát cho mọi ngân hàng**: mỗi ngân hàng có rule, tham số, tên trạng thái, mã
+lỗi khác nhau, nên BRD/tài liệu User cung cấp là **nguồn giá trị duy nhất**. Skill và Domain Pack
+chỉ cung cấp phương pháp và checklist *cần kiểm tra gì / cần hỏi gì* — không cung cấp giá trị
+mặc định nào (giờ cut-off, hạn mức, ngưỡng, số lần thử, thứ tự ưu tiên, lãi suất, mức pháp chế).
+
 ## Quy trình 6 bước
 
 ### Bước 1 — Thu thập & đọc toàn bộ tài liệu nguồn
@@ -39,6 +44,23 @@ mới nêu rõ ngưỡng min/max cụ thể).
 xác định in-scope/out-of-scope, gán mã `AC-xx` / `BR-xx.y`, phân tầng dữ kiện thành Confirmed Facts
 / Assumptions / Ambiguities, dựng ma trận rủi ro RBT (`Likelihood 1-5 x Impact 1-5`).
 
+Nạp Domain Pack ngân hàng trong `references/05-banking-domain-pack/`: LUÔN đọc `core.md`, rồi đọc
+thêm từng module sản phẩm mà nội dung in-scope (tên tính năng, AC, business rule) có nhắc tới:
+
+| Module | Đọc khi tài liệu nhắc tới |
+|--------|---------------------------|
+| `payments.md` | chuyển tiền/chuyển khoản, thanh toán, Napas/CITAD/SWIFT/QR, thu hộ/chi hộ, hoàn tiền/đảo giao dịch, biểu phí |
+| `overdraft.md` | thấu chi, hạn mức OD |
+| `lending.md` | khoản vay, cho vay, giải ngân, lịch trả nợ, thu nợ/trả nợ, nhóm nợ, quá hạn |
+| `cards.md` | thẻ (ghi nợ/tín dụng/trả trước), PIN, POS/ATM, cấp phép/quyết toán, chargeback, sao kê |
+| `deposits.md` | tiết kiệm, tiền gửi có kỳ hạn, đáo hạn, tái tục, tất toán trước hạn |
+
+Pack là CHECKLIST tìm khoảng trống, không phải phạm vi và không phải nguồn giá trị: chỉ dùng mục
+thực sự liên quan tới tài liệu. Với mỗi module đã nạp, đối chiếu mục "Tham số cần lấy từ BRD":
+tham số nào tài liệu có nhắc khái niệm (hoặc AC phụ thuộc vào) nhưng không nêu giá trị → đưa vào
+Ambiguities và câu hỏi làm rõ ở Bước 3. Tuyệt đối không tự điền giá trị "thông lệ ngành" hay giá
+trị của ngân hàng khác.
+
 ### Bước 3 — Cổng Chặn Cứng Làm Rõ (bắt buộc, trước khi thiết kế kịch bản)
 Đọc `references/02-clarification-gate.md`. Nếu tài liệu thiếu sample API (đủ cả request lẫn
 response) hoặc thiếu message cho cả luồng thành công lẫn thất bại, DỪNG LẠI và đặt câu hỏi cho
@@ -48,7 +70,10 @@ kiện hoặc User đã trả lời/tường minh miễn câu hỏi đó.
 ### Bước 4 — Thiết kế Ma trận Kịch bản (9 kỹ thuật)
 Đọc `references/03-test-design-techniques.md`, áp dụng đồng thời cả 9 kỹ thuật, nhưng CHỈ trên các
 field/tham số/luồng thực sự có căn cứ trong tài liệu — không suy diễn field lạ (`idempotency_key`,
-`device_id`...) nếu tài liệu không nhắc tới.
+`device_id`...) nếu tài liệu không nhắc tới. Với mỗi module Domain Pack đã nạp ở Bước 2, đối chiếu
+mục "Biên & giá trị đặc thù", "Máy trạng thái" và "Kỹ thuật bắt buộc nhấn mạnh" để không bỏ sót
+kịch bản đặc thù sản phẩm (vd thẻ: nhập sai PIN tới ngưỡng khóa, reversal cấp phép; vay: thứ tự
+phân bổ thu nợ khi tiền không đủ, biên ngày quá hạn chuyển nhóm nợ).
 
 ### Bước 5 — Sinh Test Case theo chuẩn 8 cột
 Đọc phần "Định dạng 8 cột" trong `references/04-test-case-format-and-review.md`. Mỗi kịch bản ở
@@ -73,7 +98,7 @@ Markdown — không cần Excel, `openpyxl`, hay bất kỳ template nào để 
 
 Trường hợp riêng: nếu agent đang chạy ngay trong repo mã nguồn `qa-agentic-workflow` (nơi các file
 prompt gốc của skill này được trích ra) và có sẵn Python + `openpyxl` + file template
-`EF_TestCases.xlsx`, agent CÓ THỂ tùy chọn dùng thêm `src/utils/excel_exporter.py` của repo đó để
+`template/Template Test Execution .xlsx`, agent CÓ THỂ tùy chọn dùng thêm `src/utils/excel_exporter.py` của repo đó để
 xuất ra một file `.xlsx` đẹp hơn thay cho bảng Markdown. Đây thuần túy là một lựa chọn hoàn thiện
 thêm khi có sẵn công cụ đó trong tay — không phải yêu cầu bắt buộc, và skill này vẫn hoàn chỉnh
 100% không cần tới nó. Lưu ý: công cụ Python đó theo mặc định xuất ra NHIỀU sheet (sheet test case
@@ -88,3 +113,16 @@ cao nhất**, dùng để lấp khoảng trống hoặc ghi đè chi tiết chư
 lại Bước 2 và phân tích lại toàn bộ với dữ kiện đầy đủ. User không cần trả lời đúng khuôn mẫu —
 một câu tự nhiên như "tính năng này chưa có API nào cả" hoặc "Message lỗi: N/A" là đủ để miễn câu
 hỏi đó (xem chi tiết cơ chế miễn trong `references/02-clarification-gate.md`).
+
+## Khi User bổ sung tài liệu hoặc feedback giữa chừng
+
+User có thể gửi thêm tài liệu, thay đổi nghiệp vụ hoặc feedback **bất cứ lúc nào** trong hội thoại —
+trước, trong hoặc sau khi đã giao bộ test case. Không bắt User bắt đầu lại:
+
+- **Câu trả lời một phần:** ghi nhận phần đã trả lời, chỉ hỏi lại đúng các điểm còn thiếu.
+- **Tài liệu mới / thay đổi nghiệp vụ:** phân tích lại (Bước 2) rồi đồng bộ bộ test case hiện có;
+  thông tin sau mâu thuẫn với thông tin trước → thông tin SAU CÙNG có hiệu lực.
+- **Feedback lên test case** ("bỏ TC 05", "thêm case X", "đổi priority TC 03"): chỉ sửa/thêm/xóa đúng
+  các TC bị ảnh hưởng, giữ nguyên phần còn lại, đánh lại mã TC liên tục, chạy lại Bước 6 (review) và
+  nêu rõ danh sách thay đổi.
+- Feedback cần dữ kiện chưa có → hỏi lại, tuyệt đối không bịa giá trị để thực hiện feedback.

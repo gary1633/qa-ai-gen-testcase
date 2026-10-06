@@ -20,8 +20,9 @@ thêm field/luồng không có trong tài liệu.
 - **Dải bậc thang/mảng**: mảng rỗng `[]`, 1 phần tử, tối đa phần tử, `min == max`, `min > max`,
   chồng lấn dải (overlap), hở dải (gap), dải cuối bắt buộc `max = null` (test cả trường hợp vi phạm
   quy tắc này).
-- **Thời gian & cut-off**: đúng mốc cắt lát giờ nghiệp vụ nêu trong tài liệu (vd: giao dịch ngân
-  hàng thường có mốc EOD 18:00 VNT: `17:59:59` bình thường, `18:00:00` bắt đầu chặn).
+- **Thời gian & cut-off**: đúng mốc cắt lát giờ nghiệp vụ nêu trong tài liệu (`cut-off - 1 giây`
+  bình thường, `đúng cut-off` bắt đầu chặn, sau thời điểm/sự kiện kết thúc mở lại). Danh sách biên
+  riêng từng sản phẩm nằm trong `05-banking-domain-pack/` — giá trị lấy từ tài liệu.
 
 ## 3. Bảng Quyết định & Pairwise Combinatorial (Decision Table & Pairwise Testing)
 Khi tính năng có nhiều chiều điều kiện, thay vì Full Cartesian quá lớn, áp dụng Pairwise để rút
@@ -30,7 +31,8 @@ kiểm thử. Ví dụ các chiều điển hình ngân hàng: Loại khách hà
 tài khoản (CASA/Tiết kiệm có kỳ hạn/Tiết kiệm bậc thang/Thấu chi) x Kênh giao dịch
 (Portal/Mobile/OpenAPI/Batch) x Khung giờ & trạng thái (Trong giờ/Ngoài giờ/Nghỉ lễ/Active/Locked).
 Với sản phẩm vay/thấu chi có nhiều job thu nợ trong ngày, dựng Decision Table riêng cho thứ tự ưu
-tiên thu nợ (Khung giờ Job x Trạng thái Khoản vay) — chỉ khi tài liệu thật sự mô tả cơ chế này.
+tiên thu nợ (Khung giờ Job x Trạng thái Khoản vay x Số tiền đủ/không đủ, xem
+`05-banking-domain-pack/lending.md`) — chỉ khi tài liệu thật sự mô tả cơ chế này.
 
 ## 4. Kiểm thử Chuyển đổi Trạng thái (State Transition Testing — STT)
 - Vòng đời hợp lệ: xác định đúng chuỗi trạng thái hợp lệ (vd: `DRAFT -> ACTIVE -> SUSPENDED ->

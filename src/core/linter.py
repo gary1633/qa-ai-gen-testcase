@@ -1,5 +1,5 @@
 import re
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, NamedTuple
 from src.core.models import RequirementAnalysis, ReviewIssue, TestCase, TestScenario
 from src.core.llm import load_qa_rules
 from src.core.prompt_loader import resolve_domain_pack
@@ -127,44 +127,132 @@ def _duplicate_test_case_issues(test_cases: List[TestCase]) -> List[ReviewIssue]
     return issues
 
 
+class GatedRule(NamedTuple):
+    """Quy tắc domain chỉ kích hoạt khi nội dung in-scope của yêu cầu khớp `trigger`; đạt khi test suite khớp `evidence`."""
+    issue_type: str
+    trigger: "re.Pattern[str]"
+    evidence: "re.Pattern[str]"
+    description: str
+    suggested_fix: str
+    severity: str = "Major"
+
+
+def _rx(pattern: str) -> "re.Pattern[str]":
+    return re.compile(pattern, re.IGNORECASE)
+
+
+# Mỗi rule gắn với một module sản phẩm (prompts/domains/banking/<module>.md) và CHỈ áp dụng khi
+# feature/tổng quan/AC có nhắc tới chủ đề đó — không gán ép kỹ thuật cho tính năng không liên quan.
+BANKING_RULES: List[GatedRule] = [
+    GatedRule(
+        "Missing Concurrency/Duplicate Case",
+        _rx(r"chuyển tiền|chuyển khoản|thanh toán|rút tiền|trừ tiền|ghi nợ tài khoản|giải ngân|thu nợ|trả nợ|tất toán"
+            r"|hoàn tiền|\brefund|\btransfer|\bwithdraw|\bpayment|\bdisburse|phong tỏa|phong toả|tạm giữ"),
+        _rx(r"trùng(?!\s*khớp)|(gửi|thực hiện|xử lý|phát sinh)\s+(\S+\s+){0,4}đồng thời|đồng thời\s+\d|cùng (một |1 )?thời điểm"
+            r"|song song|concurren|race condition|\brace\b|idempotency|duplicate"),
+        "Tính năng làm biến động số dư/dư nợ thiếu kịch bản gửi trùng request hoặc 2 giao dịch đồng thời trên cùng tài khoản.",
+        "Bổ sung test case gửi 2 giao dịch đồng thời khi số dư chỉ đủ cho 1 (hoặc gửi lặp request) và kiểm tra số dư/sổ cái không bị trừ 2 lần.",
+    ),
+    GatedRule(
+        "Missing Gateway Timeout/Reconciliation Case",
+        _rx(r"napas|citad|swift|vietqr|gateway|cổng thanh toán|đối tác|\bpartner|bên thứ (3|ba)|third[- ]party"
+            r"|tổ chức thẻ|\bvisa\b|mastercard|\bjcb\b|liên ngân hàng"),
+        _rx(r"timeout|time-out|\b504\b|đối soát|reconciliation|\bpending(?!\s+clarification)|treo|hết thời gian chờ"),
+        "Tính năng có gọi hệ thống đối tác/gateway nhưng thiếu kịch bản đối tác timeout (HTTP 504/socket timeout) và đối soát giao dịch treo.",
+        "Bổ sung test case giả lập đối tác timeout để kiểm tra trạng thái chờ đối soát (vd PENDING_RECONCILIATION), không trừ tiền 2 lần và không mất tiền.",
+    ),
+    GatedRule(
+        "Banking Compliance Violation (QĐ 2345)",
+        _rx(r"sinh trắc|biometric|2345"),
+        _rx(r"sinh trắc|biometric|khuôn mặt|\bface\b|2345"),
+        "Yêu cầu có đề cập đến xác thực Sinh trắc học / QĐ 2345 nhưng bộ test case chưa bao phủ kịch bản này.",
+        "Bổ sung test case kiểm tra xác thực Sinh trắc học theo đúng ngưỡng/điều kiện của yêu cầu (dưới ngưỡng, chạm ngưỡng, vượt ngưỡng, xác thực thất bại).",
+    ),
+    GatedRule(
+        "Missing Transaction Limit Boundary Case",
+        _rx(r"hạn mức giao dịch|hạn mức ngày|hạn mức tháng|hạn mức chuyển|daily limit|transaction limit|hạn mức lũy kế|hạn mức luỹ kế"),
+        _rx(r"vượt hạn mức|chạm hạn mức|vừa đủ hạn mức|hạn mức còn lại|lũy kế|luỹ kế|exceed|max\s*[+\-]\s*1|tối đa"),
+        "Yêu cầu có hạn mức giao dịch nhưng bộ test case thiếu kịch bản biên hạn mức (vừa chạm, vượt 1 đơn vị, lũy kế trong ngày).",
+        "Bổ sung test case giao dịch đúng bằng hạn mức, vượt hạn mức 1 VND và giao dịch thứ N làm lũy kế vượt hạn mức ngày.",
+    ),
+    GatedRule(
+        "Missing Ledger Posting Verification",
+        _rx(r"hạch toán|bút toán|sổ cái|\bledger|\bgl\b|posting"),
+        _rx(r"nợ\s*/\s*có|ghi nợ[^.\n]{0,80}ghi có|\bdebit\b[^.\n]{0,80}\bcredit\b|cân bằng|balanced|tài khoản gl|gl account"),
+        "Yêu cầu có hạch toán/bút toán nhưng không test case nào kiểm tra cặp bút toán Nợ/Có cân bằng.",
+        "Bổ sung bước kiểm tra bút toán Nợ/Có (tài khoản, số tiền) cân bằng sau giao dịch và bút toán đảo khi giao dịch thất bại.",
+    ),
+    GatedRule(
+        "Missing Repayment Allocation Case",
+        _rx(r"thu nợ|trả nợ|thu hồi nợ|debt collection|repayment"),
+        _rx(r"không đủ|một phần|partial|insufficient|thiếu số dư"),
+        "Yêu cầu có thu nợ/trả nợ nhưng thiếu kịch bản số tiền thu được không đủ để phân bổ hết các cấu phần (phí, lãi phạt, lãi, gốc).",
+        "Bổ sung bảng quyết định thứ tự phân bổ thu nợ theo tài liệu và test case số dư chỉ đủ một phần cấu phần; ghi rõ số còn lại của từng cấu phần.",
+    ),
+    GatedRule(
+        "Missing Overdue/Debt-Group Boundary Case",
+        _rx(r"nhóm nợ|chuyển nhóm|phân loại nợ|debt group|\bdpd\b|days past due"),
+        _rx(r"nhóm\s*[1-5]|\bdpd\b|ngày quá hạn|\d+\s*ngày"),
+        "Yêu cầu có phân loại/chuyển nhóm nợ nhưng thiếu kịch bản biên số ngày quá hạn tại các ngưỡng chuyển nhóm.",
+        "Bổ sung test case tại ngưỡng-1, ngưỡng, ngưỡng+1 số ngày quá hạn cho từng lần chuyển nhóm nợ nêu trong tài liệu.",
+    ),
+    GatedRule(
+        "Missing Overdraft Limit Boundary Case",
+        _rx(r"thấu chi|overdraft|\bod\b"),
+        _rx(r"vượt hạn mức|hết hạn mức|over[- ]?limit|hạn mức còn lại|hạn mức (đã )?(dùng|sử dụng)|giảm hạn mức|hết hiệu lực|hết hạn"),
+        "Yêu cầu liên quan tới thấu chi nhưng thiếu kịch bản biên hạn mức OD (dùng hết hạn mức, vượt hạn mức, hạn mức hết hiệu lực).",
+        "Bổ sung test case giao dịch dùng vừa hết hạn mức OD, vượt hạn mức 1 VND và giao dịch sau khi hạn mức hết hiệu lực/bị giảm.",
+    ),
+    GatedRule(
+        "Missing PIN Retry/Lock Case",
+        _rx(r"\bpin\b"),
+        _rx(r"sai pin|pin sai|nhập sai|wrong pin|incorrect pin|khóa|khoá|\block"),
+        "Yêu cầu có xác thực PIN nhưng thiếu kịch bản nhập sai PIN liên tiếp tới ngưỡng khóa.",
+        "Bổ sung test case nhập sai PIN N-1 lần (chưa khóa), N lần (khóa) và nhập đúng sau khi đã khóa (vẫn bị từ chối), với N theo tài liệu.",
+    ),
+    GatedRule(
+        "Missing Card Data Masking Case",
+        _rx(r"số thẻ|card number|\bpan\b|\bcvv|\bcvc"),
+        _rx(r"\bche\b|\bmask|\*{4}|x{4}|4 số cuối|6 số đầu|first 6|last 4"),
+        "Yêu cầu có hiển thị/xử lý số thẻ nhưng thiếu kịch bản kiểm tra che (mask) PAN và không lưu/hiển thị CVV.",
+        "Bổ sung test case kiểm tra PAN chỉ hiển thị theo định dạng che mà tài liệu quy định trên UI/log/response và CVV không xuất hiện ở bất kỳ đâu.",
+        "Critical",
+    ),
+    GatedRule(
+        "Missing Authorization Reversal/Expiry Case",
+        _rx(r"cấp phép|authori[sz]ation|pre-auth|tạm giữ|\bhold\b"),
+        _rx(r"reversal|hủy cấp phép|huỷ cấp phép|release|giải tỏa|giải toả|hết hạn cấp phép|tự động giải|\bđảo\b"),
+        "Yêu cầu có cấp phép/tạm giữ tiền nhưng thiếu kịch bản hủy cấp phép (reversal) hoặc cấp phép hết hạn được giải tỏa.",
+        "Bổ sung test case reversal toàn phần/một phần và cấp phép quá hạn không được quyết toán thì số tiền tạm giữ được giải tỏa đúng.",
+    ),
+    GatedRule(
+        "Missing Early-Withdrawal Interest Case",
+        _rx(r"rút trước hạn|tất toán trước hạn|early withdrawal|premature"),
+        _rx(r"không kỳ hạn|demand rate|lãi suất (rút )?trước hạn"),
+        "Yêu cầu có rút/tất toán trước hạn nhưng thiếu kịch bản kiểm tra lãi suất áp dụng khi rút trước hạn.",
+        "Bổ sung test case tất toán trước hạn và kiểm tra số tiền lãi theo đúng lãi suất trước hạn/không kỳ hạn mà tài liệu quy định.",
+    ),
+    GatedRule(
+        "Missing Maturity Date Boundary Case",
+        _rx(r"đáo hạn|tái tục|rollover|maturity"),
+        _rx(r"(trước|đúng|sau) ngày đáo hạn|ngày nghỉ|ngày lễ|holiday|cuối tuần"),
+        "Yêu cầu có đáo hạn/tái tục nhưng thiếu kịch bản biên ngày đáo hạn (trước/đúng/sau ngày đáo hạn, đáo hạn rơi vào ngày nghỉ).",
+        "Bổ sung test case giao dịch trước, đúng và sau ngày đáo hạn; và trường hợp ngày đáo hạn rơi vào ngày nghỉ/lễ nếu tài liệu có quy tắc.",
+    ),
+]
+
+
+def _gated_rule_issues(rules: List[GatedRule], scope_text: str, all_tc_text: str) -> List[ReviewIssue]:
+    return [
+        ReviewIssue(target_tc_id=None, issue_type=rule.issue_type, severity=rule.severity,
+                    description=rule.description, suggested_fix=rule.suggested_fix)
+        for rule in rules
+        if rule.trigger.search(scope_text) and not rule.evidence.search(all_tc_text)
+    ]
+
+
 def _fintech_banking_rules(analysis: RequirementAnalysis, all_tc_text: str) -> List[ReviewIssue]:
-    issues: List[ReviewIssue] = []
-    feature_lower = (analysis.feature_name or "").lower()
-    has_concurrency = any(k in all_tc_text for k in ["trùng", "đồng thời", "concurrency", "race", "idempotency", "duplicate"])
-    if not has_concurrency:
-        issues.append(ReviewIssue(
-            target_tc_id=None,
-            issue_type="Missing Concurrency/Duplicate Case",
-            severity="Major",
-            description="Tính năng Thanh toán / Chuyển tiền thiếu kịch bản kiểm thử gửi trùng request hoặc xử lý giao dịch đồng thời.",
-            suggested_fix="Bổ sung test case gửi 2 giao dịch đồng thời hoặc lặp request để kiểm tra khả năng xử lý an toàn."
-        ))
-    has_timeout = any(k in all_tc_text for k in ["timeout", "504", "đối soát", "pending", "reconciliation", "treo"])
-    if not has_timeout:
-        issues.append(ReviewIssue(
-            target_tc_id=None,
-            issue_type="Missing Idempotency/Timeout Case",
-            severity="Major",
-            description="Tính năng Chuyển tiền / Thanh toán thiếu kịch bản xử lý Gateway Timeout (HTTP 504 / Socket timeout) và đối soát giao dịch treo.",
-            suggested_fix="Bổ sung test case giả lập Gateway timeout để kiểm tra trạng thái PENDING_RECONCILIATION và phong tỏa tạm thời."
-        ))
-    # Kiểm tra Sinh trắc học / QĐ 2345: CHỈ áp dụng khi tài liệu yêu cầu có nêu rõ điều kiện Sinh trắc học / Biometric / QĐ 2345 (Không áp dụng cho API thuần túy)
-    is_api_only = "api" in feature_lower or "endpoint" in (analysis.business_overview or "").lower()
-    requires_biometrics = any(
-        ("sinh trắc" in f"{ac.description} {ac.title}".lower() or "biometric" in f"{ac.description} {ac.title}".lower() or "2345" in f"{ac.description} {ac.title}")
-        for ac in analysis.acceptance_criteria
-    )
-    if not is_api_only and requires_biometrics:
-        has_biometric = any(k in all_tc_text for k in ["sinh trắc", "biometric", "face", "2345"])
-        if not has_biometric:
-            issues.append(ReviewIssue(
-                target_tc_id=None,
-                issue_type="Banking Compliance Violation (QĐ 2345)",
-                severity="Major",
-                description="Yêu cầu có đề cập đến xác thực Sinh trắc học / QĐ 2345 nhưng bộ test case chưa bao phủ kịch bản này.",
-                suggested_fix="Bổ sung test case kiểm tra xác thực Sinh trắc học theo đúng mô tả của yêu cầu."
-            ))
-    return issues
+    return _gated_rule_issues(BANKING_RULES, analysis.scope_text, all_tc_text)
 
 
 def _ecommerce_retail_rules(analysis: RequirementAnalysis, all_tc_text: str) -> List[ReviewIssue]:
@@ -183,10 +271,8 @@ def _ecommerce_retail_rules(analysis: RequirementAnalysis, all_tc_text: str) -> 
 
 def _healthcare_rules(analysis: RequirementAnalysis, all_tc_text: str) -> List[ReviewIssue]:
     issues: List[ReviewIssue] = []
-    ac_mentions_phi = any(
-        any(k in f"{ac.description} {ac.title}".lower() for k in ["bệnh án", "patient", "phi", "hồ sơ", "bệnh nhân"])
-        for ac in analysis.acceptance_criteria
-    )
+    phi_trigger = _rx(r"bệnh án|patient|\bphi\b|hồ sơ|bệnh nhân")
+    ac_mentions_phi = any(phi_trigger.search(f"{ac.description} {ac.title}") for ac in analysis.acceptance_criteria)
     has_access_control = any(k in all_tc_text for k in ["phân quyền", "rbac", "403", "consent", "audit"])
     if ac_mentions_phi and not has_access_control:
         issues.append(ReviewIssue(

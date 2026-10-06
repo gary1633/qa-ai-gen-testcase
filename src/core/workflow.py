@@ -12,15 +12,19 @@ from src.utils.excel_exporter import export_test_cases_to_excel, sanitize_sheet_
 
 
 def parse_input_node(state: QAWorkflowState) -> Dict[str, Any]:
-    """Node 0: Trích xuất nội dung từ file hoặc raw text."""
-    input_target = state.get("input_file_path") or state.get("input_raw_text") or ""
-    raw_content, file_type = extract_input_content(input_target)
+    """Node 0: Trích xuất nội dung từ file; raw text (đã được gộp đa nguồn sẵn) đi thẳng, KHÔNG phân
+    giải lại (tránh mã Jira nằm trong nội dung đã gộp bị fetch & nhân bản thêm lần nữa)."""
+    file_path = state.get("input_file_path")
+    if file_path:
+        raw_content, file_type = extract_input_content(file_path)
+    else:
+        raw_content, file_type = (state.get("input_raw_text") or "").strip(), state.get("file_type") or "raw_text"
     
     return {
         "input_raw_text": raw_content,
         "file_type": file_type,
         "review_iteration": 0,
-        "max_review_iterations": state.get("max_review_iterations", load_qa_rules()["max_review_iterations"]),
+        "max_review_iterations": state.get("max_review_iterations") or load_qa_rules()["max_review_iterations"],
         "feedback_history": [],
         "logs": [{"node": "parse_input", "status": f"Đã đọc input thành công (loại: {file_type}, độ dài: {len(raw_content)} chars)"}]
     }
@@ -37,7 +41,8 @@ def requirement_analyst_node(state: QAWorkflowState) -> Dict[str, Any]:
         provider=state.get("llm_provider"),
         model_name=state.get("llm_model_name"),
         base_url=state.get("llm_base_url"),
-        api_key=state.get("llm_api_key")
+        api_key=state.get("llm_api_key"),
+        prior_clarification_questions=state.get("prior_clarification_questions")
     )
     
     if analysis.needs_user_clarification:
@@ -69,7 +74,7 @@ def scenario_designer_node(state: QAWorkflowState) -> Dict[str, Any]:
 
 
 def testcase_generator_node(state: QAWorkflowState) -> Dict[str, Any]:
-    """Node 3: Sinh danh sách Test Case chi tiết theo chuẩn 14 cột của Excel."""
+    """Node 3: Sinh danh sách Test Case chi tiết theo các cột của template phiếu kiểm thử."""
     analysis = state["requirement_analysis"]
     scenarios = state["scenarios"]
     
@@ -126,10 +131,10 @@ def reviewer_linter_node(state: QAWorkflowState) -> Dict[str, Any]:
 
 
 def export_excel_node(state: QAWorkflowState) -> Dict[str, Any]:
-    """Node 5: Xuất Test Cases ra sheet mới trong Template Testsuite.xlsx."""
+    """Node 5: Xuất Test Cases ra file Excel mới dựng từ template phiếu kiểm thử."""
     analysis = state["requirement_analysis"]
     test_cases = state["test_cases"]
-    template_path = state.get("template_excel_path") or "EF_TestCases.xlsx"
+    template_path = state.get("template_excel_path")
     target_sheet = state.get("custom_sheet_name") or sanitize_sheet_name(analysis.feature_name)
     
     output_path = state.get("output_excel_path")

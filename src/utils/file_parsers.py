@@ -61,20 +61,26 @@ def parse_pdf_file(file_path: str) -> str:
     return "\n\n".join(pages_text).strip()
 
 
-def is_safe_local_file(path_str: str) -> bool:
-    """Kiểm tra chuỗi có phải là đường dẫn file hợp lệ trên ổ đĩa không (tránh lỗi File name too long khi là raw text)."""
+def is_safe_local_file(path_str: str, root: Optional[str] = None) -> bool:
+    """Kiểm tra chuỗi có phải là đường dẫn file hợp lệ trên ổ đĩa không (tránh lỗi File name too long khi là raw text).
+
+    `root`: khi nội dung đến từ kênh từ xa (Slack/Web), CHỈ file nằm trong thư mục upload này mới được
+    đọc — tin nhắn chứa đường dẫn file của server (vd `.env`) được coi là text thường, không bị đọc lộ ra.
+    `None` = kênh tin cậy (CLI trên máy của chính User)."""
     if not path_str or not isinstance(path_str, str):
         return False
     if "\n" in path_str or len(path_str) > 255:
         return False
     try:
         p = Path(path_str)
-        return p.exists() and p.is_file()
+        if not (p.exists() and p.is_file()):
+            return False
+        return root is None or p.resolve().is_relative_to(Path(root).resolve())
     except (OSError, ValueError):
         return False
 
 
-def extract_input_content(file_path_or_text: str) -> Tuple[str, str]:
+def extract_input_content(file_path_or_text: str, local_file_root: Optional[str] = None) -> Tuple[str, str]:
     """
     Nhận diện file path, Jira Ticket URL / Key hoặc raw text và trả về (raw_text_content, file_type).
     """
@@ -85,7 +91,7 @@ def extract_input_content(file_path_or_text: str) -> Tuple[str, str]:
 
     # 1. Kiểm tra nếu là Jira Ticket URL hoặc chứa mã Jira Key (kèm ghi chú bổ sung nếu có)
     jira_key = extract_jira_key(clean_input)
-    if jira_key and (not is_safe_local_file(clean_input)):
+    if jira_key and (not is_safe_local_file(clean_input, local_file_root)):
         try:
             jira_connector = JiraConnector()
             j_data = jira_connector.fetch_issue(jira_key)
@@ -105,7 +111,7 @@ def extract_input_content(file_path_or_text: str) -> Tuple[str, str]:
         except Exception as e:
             # Nếu không kéo được Jira (chưa cấu hình token hoặc offline), fallback về raw text
             pass
-    if is_safe_local_file(clean_input):
+    if is_safe_local_file(clean_input, local_file_root):
         path_obj = Path(clean_input)
         suffix = path_obj.suffix.lower()
         if suffix in [".md", ".markdown"]:
@@ -123,10 +129,10 @@ def extract_input_content(file_path_or_text: str) -> Tuple[str, str]:
         return clean_input, "raw_text"
 
 
-def merge_multiple_sources(sources: List[str]) -> Tuple[str, str, Dict[str, Any]]:
+def merge_multiple_sources(sources: List[str], local_file_root: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
     Kết hợp nhiều nguồn tài liệu (Jira Tickets, File Word, PDF, OpenAPI, Text notes)
-    thành một tài liệu phân tích nghiệp vụ tổng hợp duy nhất.
+    thành một tài liệu phân tích nghiệp vụ tổng hợp duy nhất. `local_file_root`: xem `is_safe_local_file`.
     """
     if not sources:
         return "", "empty", {}
@@ -134,7 +140,8 @@ def merge_multiple_sources(sources: List[str]) -> Tuple[str, str, Dict[str, Any]
     if len(sources) == 1:
         src_clean = sources[0].strip()
         jira_key = extract_jira_key(src_clean)
-        if jira_key and (not is_safe_local_file(src_clean)) and ("/" in src_clean or len(src_clean.split()) <= 3):
+        is_file = is_safe_local_file(src_clean, local_file_root)
+        if jira_key and (not is_file) and ("/" in src_clean or len(src_clean.split()) <= 3):
             try:
                 jira_connector = JiraConnector()
                 j_data = jira_connector.fetch_issue(src_clean)
@@ -147,9 +154,9 @@ def merge_multiple_sources(sources: List[str]) -> Tuple[str, str, Dict[str, Any]
             except Exception as e:
                 pass
 
-        raw_text, f_type = extract_input_content(src_clean)
+        raw_text, f_type = extract_input_content(src_clean, local_file_root)
         metadata = {
-            "source_names": [Path(src_clean).name if is_safe_local_file(src_clean) else "Direct_Input"],
+            "source_names": [Path(src_clean).name if is_file else "Direct_Input"],
             "jira_links": [],
             "jira_keys": [jira_key] if jira_key else []
         }
@@ -172,7 +179,8 @@ def merge_multiple_sources(sources: List[str]) -> Tuple[str, str, Dict[str, Any]
         
         # 1. Kiểm tra nếu là Jira Ticket / URL
         jira_key = extract_jira_key(src_clean)
-        if jira_key and (not is_safe_local_file(src_clean)) and ("/" in src_clean or len(src_clean.split()) == 1):
+        is_file = is_safe_local_file(src_clean, local_file_root)
+        if jira_key and (not is_file) and ("/" in src_clean or len(src_clean.split()) == 1):
             try:
                 j_data = jira_connector.fetch_issue(src_clean)
                 merged_parts.append(f"## [Tài liệu {idx} - Jira Ticket]: {j_data['key']} - {j_data['summary']}")
@@ -186,8 +194,8 @@ def merge_multiple_sources(sources: List[str]) -> Tuple[str, str, Dict[str, Any]
                 pass
 
         # 2. Kiểm tra nếu là Local File (.docx, .pdf, .md, .json, .yaml)
-        if is_safe_local_file(src_clean):
-            content, f_type = extract_input_content(src_clean)
+        if is_file:
+            content, f_type = extract_input_content(src_clean, local_file_root)
             filename = Path(src_clean).name
             merged_parts.append(f"## [Tài liệu {idx} - File {f_type.upper()}]: {filename}")
             merged_parts.append(content)

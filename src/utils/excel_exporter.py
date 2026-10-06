@@ -1,78 +1,82 @@
+import json
 import os
 import re
-from datetime import datetime
-from typing import List, Optional
+from copy import copy
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.drawing.image import Image
-from src.core.models import RequirementAnalysis, TestCase
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.cell_range import MultiCellRange
+from openpyxl.worksheet.worksheet import Worksheet
+
 from src.core.clarification import PENDING_CLARIFICATION_MARKER
+from src.core.llm import load_config
+from src.core.models import RequirementAnalysis, TestCase
 
-# Style definitions matching EF_TestCases.xlsx
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 FONT_FAMILY = "Be Vietnam Pro"
-FONT_CODE = "Consolas"
-
-HEADER_FONT = Font(name=FONT_FAMILY, size=10, bold=True)
-DATA_FONT = Font(name=FONT_FAMILY, size=10, bold=False)
-ID_FONT = Font(name=FONT_FAMILY, size=10, bold=True)
-CODE_FONT = Font(name=FONT_CODE, size=9, bold=False)
-
-GROUP_L1_FONT = Font(name=FONT_FAMILY, size=11, bold=True, color="000000")
-GROUP_L1_FILL = PatternFill(start_color="FFD5A6BD", end_color="FFD5A6BD", fill_type="solid")
-
-GROUP_L2_FONT = Font(name=FONT_FAMILY, size=10, bold=True, color="000000")
-GROUP_L2_FILL = PatternFill(start_color="FFEAD1DC", end_color="FFEAD1DC", fill_type="solid")
-
+CODE_FONT = Font(name="Consolas", size=9, bold=False)
 PENDING_FILL = PatternFill(start_color="FFFFF2CC", end_color="FFFFF2CC", fill_type="solid")
 
-THIN_BORDER = Border(
-    left=Side(style='thin', color='FFD9D9D9'),
-    right=Side(style='thin', color='FFD9D9D9'),
-    top=Side(style='thin', color='FFD9D9D9'),
-    bottom=Side(style='thin', color='FFD9D9D9')
-)
+# Nhãn header cột trong template (dòng chứa "Testcase ID") -> field của TestCase được Agent điền.
+# Template là nguồn chuẩn: exporter định vị cột theo nhãn, không theo vị trí cố định.
+# Các cột theo dõi thực thi (Kết quả thực tế, Người tạo, Kế hoạch thực hiện, Ngày thực hiện) cố ý để trống.
+ID_HEADER = "Testcase ID"
+STATUS_HEADER = "Trạng thái test"
+COLUMN_FIELDS: Dict[str, str] = {
+    ID_HEADER: "testcase_id",
+    "Tên testcase": "title",
+    "Các bước thực hiện": "steps",
+    "Kết quả mong đợi": "expected_result",
+    "Dữ liệu test": "test_data",
+    STATUS_HEADER: "test_status",
+    "Mức độ ưu tiên": "priority",
+    "Ghi chú": "note",
+}
+CENTERED_FIELDS = {"testcase_id", "test_status", "priority"}
 
-# Danh sách các Sheet dùng chung của dự án bắt buộc giữ lại
-STANDARD_COMMON_SHEETS = [
-    'Workstream Progress Summary',
-    'Tài liệu tổng hợp',
-    'Template phiếu KTNV',
-    'Daily Execution Log',
-    'Checklist Report',
-    'RAW JIRA Bug'
-]
+# Khối "KẾT QUẢ KIỂM THỬ": dòng nhãn bắt đầu bằng "Total" ở cột A, công thức nằm ngay dòng dưới.
+SUMMARY_TOTAL = "Total"
+SUMMARY_STATUS_LABELS = ("Passed", "Failed", "Blocked", "Not Test")
+SUMMARY_REMAINDER = "Not Executed"
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "../../assets/logo.png")
+# Nhãn metadata ở cột B phía trên header; giá trị ghi vào ô bên phải nhãn.
+META_DOC_CODE = "Mã tài liệu"
+META_APP = "Tên ứng dụng"
+META_VERSION = "Phiên bản"
+META_FEATURE = "Mô tả tính năng"
+META_DOC_LINK = "Tài liệu"
+
+JIRA_KEY_REGEX = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+
 
 def format_cell_json_text(text: str) -> str:
     """Tự động phát hiện và format đẹp các đoạn JSON trong Steps, Expected Result, Test Data."""
     if not text or not isinstance(text, str):
         return text or ""
-    
+
     text = text.strip()
-    
+
     # 1. Nếu toàn bộ ô là JSON
     if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
         try:
-            import json
-            parsed = json.loads(text)
-            return json.dumps(parsed, indent=2, ensure_ascii=False)
+            return json.dumps(json.loads(text), indent=2, ensure_ascii=False)
         except Exception:
             pass
-            
-    # 2. Nếu là text có chứa đoạn JSON lồng bên trong (như hình mẫu)
+
+    # 2. Nếu là text có chứa đoạn JSON lồng bên trong
     def replacer(match):
         json_str = match.group(0)
         try:
-            import json
-            parsed = json.loads(json_str)
-            return json.dumps(parsed, indent=2, ensure_ascii=False)
+            return json.dumps(json.loads(json_str), indent=2, ensure_ascii=False)
         except Exception:
             return json_str
 
     pattern = r'(\{(?:[^{}]|(?:\{[^{}]*\}))*\})'
-    formatted_text = re.sub(pattern, replacer, text)
-    return formatted_text
+    return re.sub(pattern, replacer, text)
 
 
 def sanitize_filename(name: str) -> str:
@@ -91,12 +95,121 @@ def sanitize_sheet_name(name: str) -> str:
 
 
 def get_default_template_path() -> str:
-    """Ưu tiên dùng EF_TestCases.xlsx (bản chuẩn có logo), fallback sang Template Testsuite.xlsx."""
-    if os.path.exists("EF_TestCases.xlsx"):
-        return "EF_TestCases.xlsx"
-    elif os.path.exists("Template Testsuite.xlsx"):
-        return "Template Testsuite.xlsx"
-    return "EF_TestCases.xlsx"
+    """Template mặc định khai báo tại configs/config.yaml -> excel.template_path (tương đối theo thư mục dự án)."""
+    configured = (load_config().get("excel") or {}).get("template_path")
+    if not configured:
+        raise ValueError("configs/config.yaml thiếu khóa excel.template_path (đường dẫn template Excel mặc định).")
+    path = Path(configured)
+    return str(path if path.is_absolute() else PROJECT_ROOT / path)
+
+
+def _find_testcase_sheet(wb: openpyxl.Workbook) -> Tuple[Worksheet, int]:
+    """Trả về (sheet test case, dòng header) — sheet đầu tiên có ô cột A bằng 'Testcase ID'."""
+    for ws in wb.worksheets:
+        for row in range(1, ws.max_row + 1):
+            if str(ws.cell(row, 1).value or "").strip() == ID_HEADER:
+                return ws, row
+    raise ValueError(f"Template không có sheet test case nào chứa header '{ID_HEADER}' ở cột A.")
+
+
+def _map_columns(ws: Worksheet, header_row: int) -> Dict[str, int]:
+    """field TestCase -> chỉ số cột, đọc từ nhãn header của template."""
+    columns: Dict[str, int] = {}
+    for col in range(1, ws.max_column + 1):
+        label = str(ws.cell(header_row, col).value or "").strip()
+        if label in COLUMN_FIELDS:
+            columns[COLUMN_FIELDS[label]] = col
+    missing = [label for label, field in COLUMN_FIELDS.items() if field not in columns]
+    if missing:
+        raise ValueError(f"Header template (dòng {header_row}) thiếu các cột: {', '.join(missing)}")
+    return columns
+
+
+def _find_label_cell(ws: Worksheet, label: str, column: int, last_row: int) -> Optional[int]:
+    for row in range(1, last_row):
+        if str(ws.cell(row, column).value or "").strip() == label:
+            return row
+    return None
+
+
+def _fill_metadata(ws: Worksheet, header_row: int, analysis: RequirementAnalysis) -> None:
+    link = analysis.jira_or_doc_link or ""
+    values = {
+        META_DOC_CODE: ", ".join(dict.fromkeys(JIRA_KEY_REGEX.findall(link))),
+        META_APP: analysis.app_name,
+        META_VERSION: analysis.version,
+        META_FEATURE: analysis.feature_name,
+        META_DOC_LINK: link or "N/A",
+    }
+    for label, value in values.items():
+        row = _find_label_cell(ws, label, 2, header_row)
+        if row is None:
+            raise ValueError(f"Template thiếu nhãn metadata '{label}' ở cột B phía trên header.")
+        ws.cell(row, 3).value = value
+
+
+def _write_summary_formulas(ws: Worksheet, header_row: int, columns: Dict[str, int], first_row: int, last_row: int) -> None:
+    label_row = _find_label_cell(ws, SUMMARY_TOTAL, 1, header_row)
+    if label_row is None:
+        raise ValueError(f"Template thiếu khối thống kê có nhãn '{SUMMARY_TOTAL}' ở cột A.")
+    formula_row = label_row + 1
+    id_range = f"{get_column_letter(columns['testcase_id'])}{first_row}:{get_column_letter(columns['testcase_id'])}{last_row}"
+    status_letter = get_column_letter(columns["test_status"])
+    status_range = f"{status_letter}{first_row}:{status_letter}{last_row}"
+
+    label_cols: Dict[str, int] = {}
+    for col in range(1, ws.max_column + 1):
+        label = str(ws.cell(label_row, col).value or "").strip()
+        if label:
+            label_cols[label] = col
+
+    total_col = label_cols[SUMMARY_TOTAL]
+    total_ref = f"{get_column_letter(total_col)}{formula_row}"
+    ws.cell(formula_row, total_col).value = f'=COUNTIF({id_range},"TC*")'
+    status_refs = []
+    for status in SUMMARY_STATUS_LABELS:
+        if status in label_cols:
+            col = label_cols[status]
+            ws.cell(formula_row, col).value = f'=COUNTIF({status_range},"{status}")'
+            status_refs.append(f"{get_column_letter(col)}{formula_row}")
+    if SUMMARY_REMAINDER in label_cols and status_refs:
+        ws.cell(formula_row, label_cols[SUMMARY_REMAINDER]).value = f"={total_ref}-SUM({','.join(status_refs)})"
+
+
+def _row_styles(ws: Worksheet, row: int, last_col: int) -> Dict[int, object]:
+    return {col: copy(ws.cell(row, col)._style) for col in range(1, last_col + 1)}
+
+
+def _render_steps(tc: TestCase) -> str:
+    """Template không có cột 'Điều kiện tiên quyết' -> ghi preconditions ở đầu cột 'Các bước thực hiện'."""
+    steps = format_cell_json_text(tc.steps)
+    preconditions = (tc.preconditions or "").strip()
+    if not preconditions:
+        return steps
+    return f"Điều kiện tiên quyết:\n{preconditions}\n\nCác bước:\n{steps}"
+
+
+def _id_formula(columns: Dict[str, int], header_row: int, row: int) -> str:
+    """ID tự đánh số lại khi xóa/chèn dòng: đếm các ô 'TC*' phía trên trong cột ID (bỏ qua dòng banner).
+    Mốc đầu khóa ở dòng header để vùng đếm không bao giờ chứa chính ô hiện tại (tránh tham chiếu vòng)."""
+    id_col = get_column_letter(columns["testcase_id"])
+    title_col = get_column_letter(columns["title"])
+    return (
+        f'=IF({title_col}{row}<>"","TC "&TEXT(COUNTIF({id_col}${header_row}:{id_col}{row - 1},"TC*")+1,"00"),"")'
+    )
+
+
+def _cell_values(tc: TestCase, id_formula: str) -> Dict[str, str]:
+    return {
+        "testcase_id": id_formula,
+        "title": tc.title,
+        "steps": _render_steps(tc),
+        "expected_result": format_cell_json_text(tc.expected_result),
+        "test_data": format_cell_json_text(tc.test_data),
+        "test_status": tc.test_status or "Not Test",
+        "priority": tc.priority or "High",
+        "note": tc.note or "",
+    }
 
 
 def export_test_cases_to_excel(
@@ -109,214 +222,108 @@ def export_test_cases_to_excel(
     pending_clarifications: Optional[List[str]] = None
 ) -> str:
     """
-    Tạo một file Excel MỚI RIÊNG BIỆT (mặc định trong thư mục outputs/):
-    - Sử dụng EF_TestCases.xlsx làm template chuẩn có logo và biểu đồ
-    - GIỮ LẠI tất cả các sheet báo cáo chung (Workstream Progress Summary, Tài liệu tổng hợp, Daily Execution Log...)
-    - XÓA các sheet test case demo cũ (EF_BLOCKADE_SA, EF_Calculate_Savings_Interest, fisa_blockade_options...)
-    - TẠO sheet test case mới cho tính năng hiện tại và đặt ngay sau sheet Progress Summary
-    - TỰ ĐỘNG CẬP NHẬT công thức liên kết trong sheet Workstream Progress Summary
-    - NHÚNG LOGO công ty vào sheet Progress Summary
+    Tạo một file Excel MỚI (mặc định trong thư mục outputs/) từ template phiếu kiểm thử:
+    - Sheet test case (sheet có header 'Testcase ID') được đổi tên theo tính năng, giữ nguyên logo,
+      style, dropdown và các sheet phụ khác của template (vd: DRAW_BUG).
+    - Metadata, khối thống kê và cột dữ liệu được định vị theo NHÃN trong template.
+    - Dòng banner nhóm L1/L2 và dòng dữ liệu dùng lại style của các dòng mẫu ngay dưới header.
     """
     actual_template = template_path or get_default_template_path()
     if not os.path.exists(actual_template):
         raise FileNotFoundError(f"Không tìm thấy file template tại: {actual_template}")
 
     # 1. Xác định đường dẫn file đích
-    clean_feature_name = sanitize_filename(analysis.feature_name)
     if output_path:
         dest_path = output_path
     else:
-        output_dir = "outputs"
-        os.makedirs(output_dir, exist_ok=True)
-        dest_path = os.path.join(output_dir, f"Testsuite_{clean_feature_name}.xlsx")
-
+        dest_path = os.path.join("outputs", f"Testsuite_{sanitize_filename(analysis.feature_name)}.xlsx")
     parent_dir = os.path.dirname(dest_path)
     if parent_dir:
         os.makedirs(parent_dir, exist_ok=True)
 
-    # 2. Đọc file Template gốc
+    # 2. Định vị cấu trúc template
     wb = openpyxl.load_workbook(actual_template)
-    
-    # Tìm sheet template làm mẫu sao chép
-    base_sheet_name = None
-    candidate_base_sheets = ['Template phiếu KTNV', 'EF_BLOCKADE_SA', 'fisa_blockade_options']
-    for candidate in candidate_base_sheets:
-        if candidate in wb.sheetnames:
-            base_sheet_name = candidate
-            break
-            
-    if not base_sheet_name:
-        # Lấy sheet thứ 3 hoặc sheet bất kỳ có cấu trúc testcase
-        base_sheet_name = wb.sheetnames[-1]
+    ws, header_row = _find_testcase_sheet(wb)
+    columns = _map_columns(ws, header_row)
+    last_col = max(col for col in range(1, ws.max_column + 1) if ws.cell(header_row, col).value not in (None, ""))
 
-    # 3. Đặt tên sheet mới & Copy từ template sheet
+    # 3. Đổi tên sheet test case (tại chỗ để giữ logo/dropdown/autofilter của template)
     desired_name = target_sheet_name or sanitize_sheet_name(analysis.feature_name)
+    other_names = {s for s in wb.sheetnames if s != ws.title}
     final_sheet_name = desired_name
     counter = 1
-    while final_sheet_name in wb.sheetnames:
+    while final_sheet_name in other_names:
         final_sheet_name = f"{desired_name[:26]}_{counter}"
         counter += 1
-
-    base_ws = wb[base_sheet_name]
-    ws = wb.copy_worksheet(base_ws)
     ws.title = final_sheet_name
 
-    # 4. Xóa các sheet demo cũ không nằm trong danh sách dùng chung
-    for sname in list(wb.sheetnames):
-        if sname not in STANDARD_COMMON_SHEETS and sname != final_sheet_name:
-            del wb[sname]
+    # 4. Metadata phía trên header (Ngày thực hiện / Người duyệt / Ngày duyệt để trống cho người thực thi)
+    _fill_metadata(ws, header_row, analysis)
 
-    # 5. Di chuyển sheet mới lên vị trí thứ 2 (ngay sau Workstream Progress Summary)
-    if 'Workstream Progress Summary' in wb.sheetnames:
-        sum_idx = wb.sheetnames.index('Workstream Progress Summary')
-        cur_idx = wb.sheetnames.index(final_sheet_name)
-        wb.move_sheet(ws, offset=(sum_idx + 1) - cur_idx)
+    # 5. Lấy style 3 dòng mẫu (banner L1, banner L2, dữ liệu) rồi xóa toàn bộ dữ liệu mẫu dưới header
+    l1_styles = _row_styles(ws, header_row + 1, last_col)
+    l2_styles = _row_styles(ws, header_row + 2, last_col)
+    data_styles = _row_styles(ws, header_row + 3, last_col)
+    if ws.max_row > header_row:
+        ws.delete_rows(header_row + 1, ws.max_row - header_row)
 
-    # 6. Cập nhật Metadata cho Sheet tính năng mới (Rows 10-14, Col C)
-    today_str = datetime.now().strftime("%d/%m/%Y")
-    ws.cell(10, 3).value = analysis.app_name
-    ws.cell(11, 3).value = analysis.version
-    ws.cell(12, 3).value = analysis.feature_name
-    ws.cell(13, 3).value = analysis.jira_or_doc_link or "N/A"
-    ws.cell(14, 3).value = today_str
-
-    # 7. Xóa placeholder từ dòng 22 trở xuống
-    max_init_row = ws.max_row
-    if max_init_row >= 22:
-        ws.delete_rows(22, max_init_row - 21 + 10)
-
-    # 8. Đổ dữ liệu Test Case có gom nhóm L1 / L2
-    current_row = 22
+    # 6. Đổ dữ liệu Test Case có gom nhóm L1 / L2
+    banner_col = columns["title"]
+    first_row = header_row + 1
+    current_row = first_row
     current_group_feature = None
     current_group_functional = None
-    first_tc_row = None  # Neo dòng đầu tiên của bộ Test Case, dùng cho công thức tự đánh số cột A
+
+    def write_banner(row: int, text: str, styles: Dict[int, object]) -> None:
+        for col in range(1, last_col + 1):
+            ws.cell(row, col)._style = copy(styles[col])
+        cell = ws.cell(row, banner_col)
+        cell.value = text
+        cell.alignment = Alignment(vertical="center", horizontal="left")
 
     for tc in test_cases:
-        # Gom nhóm L1: Group Feature
         if tc.group_feature and tc.group_feature != current_group_feature:
             current_group_feature = tc.group_feature
             current_group_functional = None
-            
-            for col_idx in range(1, 15):
-                cell = ws.cell(current_row, col_idx)
-                cell.fill = GROUP_L1_FILL
-                cell.border = THIN_BORDER
-                if col_idx == 2:
-                    cell.value = current_group_feature
-                    cell.font = GROUP_L1_FONT
-                    cell.alignment = Alignment(vertical="center", horizontal="left")
+            write_banner(current_row, current_group_feature, l1_styles)
             current_row += 1
 
-        # Gom nhóm L2: Group Functional
         if tc.group_functional and tc.group_functional != current_group_functional:
             current_group_functional = tc.group_functional
-            
-            for col_idx in range(1, 15):
-                cell = ws.cell(current_row, col_idx)
-                cell.fill = GROUP_L2_FILL
-                cell.border = THIN_BORDER
-                if col_idx == 2:
-                    cell.value = current_group_functional
-                    cell.font = GROUP_L2_FONT
-                    cell.alignment = Alignment(vertical="center", horizontal="left")
+            write_banner(current_row, current_group_functional, l2_styles)
             current_row += 1
 
-        # Ghi 14 cột của Test Case (Format đẹp các khối JSON)
-        if first_tc_row is None:
-            first_tc_row = current_row
-        row_values = [
-            f'=IF(B{current_row}<>"", "TC " & TEXT(ROW()-ROW($B${first_tc_row})+1, "00"), "")',
-            tc.title,
-            tc.preconditions,
-            format_cell_json_text(tc.steps),
-            format_cell_json_text(tc.expected_result),
-            tc.actual_result or "",
-            format_cell_json_text(tc.test_data),
-            tc.creator or "QA Agent (RBT)",
-            tc.test_date or today_str,
-            tc.test_status or "Not Test",
-            tc.priority or "High",
-            tc.plan_execution or "Sprint Release",
-            tc.executed_date or "",
-            tc.note or ""
-        ]
-
-        for col_idx, val in enumerate(row_values, start=1):
-            cell = ws.cell(current_row, col_idx)
-            cell.value = val
-            cell.border = THIN_BORDER
-
-            if col_idx == 1:
-                cell.font = ID_FONT
-                cell.alignment = Alignment(vertical="top", horizontal="center", wrap_text=True)
-            elif col_idx in [2, 3, 4]:
-                cell.font = DATA_FONT
-                cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
-            elif col_idx == 5:
-                cell.font = CODE_FONT if "{" in str(val) else DATA_FONT
-                cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
-            elif col_idx in [8, 9, 10, 11, 12, 13]:
-                cell.font = DATA_FONT
-                cell.alignment = Alignment(vertical="top", horizontal="center", wrap_text=True)
-            else:
-                cell.font = DATA_FONT
-                cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
-        if PENDING_CLARIFICATION_MARKER in (tc.note or ""):
-            for col_idx in range(1, 15):
-                ws.cell(current_row, col_idx).fill = PENDING_FILL
-
+        is_pending = PENDING_CLARIFICATION_MARKER in (tc.note or "")
+        for col in range(1, last_col + 1):
+            ws.cell(current_row, col)._style = copy(data_styles[col])
+        for field, value in _cell_values(tc, _id_formula(columns, header_row, current_row)).items():
+            cell = ws.cell(current_row, columns[field])
+            cell.value = value
+            cell.alignment = Alignment(
+                vertical="top",
+                horizontal="center" if field in CENTERED_FIELDS else "left",
+                wrap_text=True,
+            )
+            if field == "expected_result" and "{" in value:
+                cell.font = CODE_FONT
+        if is_pending:
+            for col in range(1, last_col + 1):
+                ws.cell(current_row, col).fill = PENDING_FILL
         current_row += 1
 
-    end_data_row = max(current_row - 1, 22)
+    last_row = max(current_row - 1, first_row)
 
-    # 9. Cập nhật lại công thức dòng 19 trong sheet testcase
-    ws.cell(19, 1).value = f'=COUNTIF(A22:A{end_data_row},"TC*")'
-    ws.cell(19, 2).value = f'=COUNTIF(J22:J{end_data_row},"Passed")'
-    ws.cell(19, 3).value = f'=COUNTIF(J22:J{end_data_row},"Failed")'
-    ws.cell(19, 4).value = f'=COUNTIF(J22:J{end_data_row},"Blocked")'
-    ws.cell(19, 5).value = f'=COUNTIF(J22:J{end_data_row},"Not Test")'
-    ws.cell(19, 6).value = f'=A19-SUM(B19:E19)'
-
-    # 10. Cập nhật Sheet 'Workstream Progress Summary'
-    if 'Workstream Progress Summary' in wb.sheetnames:
-        ws_sum = wb['Workstream Progress Summary']
-        ws_sum.cell(8, 4).value = analysis.app_name
-        ws_sum.cell(9, 4).value = analysis.version
-        ws_sum.cell(10, 4).value = today_str
-        
-        # Cập nhật Row 15 liên kết sang sheet tính năng mới
-        ws_sum.cell(15, 2).value = 1
-        ws_sum.cell(15, 3).value = final_sheet_name
-        ws_sum.cell(15, 4).value = f"='{final_sheet_name}'!A19"
-        ws_sum.cell(15, 5).value = f"='{final_sheet_name}'!B19"
-        ws_sum.cell(15, 6).value = f"='{final_sheet_name}'!C19"
-        ws_sum.cell(15, 7).value = f"='{final_sheet_name}'!D19"
-        ws_sum.cell(15, 8).value = f"='{final_sheet_name}'!E19"
-        ws_sum.cell(15, 9).value = "=SUM(E15:H15)-G15"
-        ws_sum.cell(15, 10).value = "=D15-I15"
-        ws_sum.cell(15, 11).value = '=IFERROR(I15/D15,"")'
-        
-        # Xóa dữ liệu các dòng demo cũ (Row 16, 17)
-        for r_clear in range(16, 18):
-            for c_clear in range(2, 12):
-                ws_sum.cell(r_clear, c_clear).value = None
-
-        # Cập nhật công thức Tổng dòng 18
-        ws_sum.cell(18, 4).value = "=SUM(D15:D15)"
-        ws_sum.cell(18, 5).value = "=D18-F18"
-        ws_sum.cell(18, 6).value = "=SUM(F15:F15)"
-        ws_sum.cell(18, 7).value = "=SUM(G15:G15)"
-        ws_sum.cell(18, 8).value = "=SUM(H15:H15)"
-        ws_sum.cell(18, 9).value = "=SUM(I15:I15)"
-        ws_sum.cell(18, 10).value = "=SUM(J15:J15)"
-        ws_sum.cell(18, 11).value = '=IFERROR(I18/D18,"")'
-
-        # Logo và biểu đồ đã có sẵn nguyên bản từ template EF_TestCases.xlsx
+    # 7. Công thức thống kê, dropdown và autofilter theo đúng vùng dữ liệu mới
+    _write_summary_formulas(ws, header_row, columns, first_row, last_row)
+    for dv in ws.data_validations.dataValidation:
+        letters = sorted({get_column_letter(rng.min_col) for rng in dv.sqref.ranges})
+        dv.sqref = MultiCellRange(" ".join(f"{letter}{first_row}:{letter}{last_row}" for letter in letters))
+    ws.auto_filter.ref = f"A{header_row}:{get_column_letter(last_col)}{last_row}"
 
     if pending_clarifications:
         q_ws = wb.create_sheet(title="Cần làm rõ (Pending)")
         q_ws.cell(1, 1).value = f"CÂU HỎI CẦN USER / PO / BA LÀM RÕ - {analysis.feature_name}"
-        q_ws.cell(1, 1).font = GROUP_L1_FONT
+        q_ws.cell(1, 1).font = Font(name=FONT_FAMILY, size=11, bold=True)
         q_ws.cell(2, 1).value = (
             "Các test case được tô màu vàng và có ghi chú PENDING CLARIFICATION trong sheet test case "
             "đang thiếu API sample / message chính xác. KHÔNG dùng làm bản chính thức trước khi chốt các câu hỏi dưới đây."
@@ -324,13 +331,10 @@ def export_test_cases_to_excel(
         for i, q in enumerate(pending_clarifications, start=1):
             cell = q_ws.cell(3 + i, 1)
             cell.value = f"{i}. {q}"
-            cell.font = DATA_FONT
+            cell.font = Font(name=FONT_FAMILY, size=10)
             cell.alignment = Alignment(vertical="top", horizontal="left", wrap_text=True)
         q_ws.column_dimensions["A"].width = 140
 
-    # Đặt sheet test case mới làm Active Sheet
-    wb.active = ws
-
-    # Lưu ra file mới
+    wb.active = wb.worksheets.index(ws)
     wb.save(dest_path)
     return dest_path

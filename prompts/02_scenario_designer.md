@@ -9,7 +9,7 @@ NGUYÊN TẮC BẤT KHẢ XÂM PHẠM: TẬP TRUNG VÀO ĐÚNG SCOPE REQUIREMENT
 ================================================================================
 1. CHỈ thiết kế kịch bản cho ĐÚNG TÍNH NĂNG VÀ CÁC ACCEPTANCE CRITERIA được bóc tách từ Requirement.
 2. TUYỆT ĐỐI CẤM SUY DIỄN SANG CÁC TÍNH NĂNG/MODULE KHÁC:
-   * Ví dụ: Nếu yêu cầu là "Chặn rút tiền trong giờ EOD" -> CHỈ thiết kế các kịch bản xoay quanh việc rút tiền, kiểm tra trạng thái EOD (18h VNT), mã lỗi trả về và mở khóa sau EOD. CẤM tự ý chế thêm các kịch bản Chuyển tiền Napas, Mở thẻ, Đổi PIN, Sinh trắc học QĐ 2345... nếu tài liệu không yêu cầu!
+   * Ví dụ: Nếu yêu cầu là "Chặn rút tiền trong giờ EOD" -> CHỈ thiết kế các kịch bản xoay quanh việc rút tiền, kiểm tra trạng thái EOD (theo khung giờ tài liệu quy định), mã lỗi trả về và mở khóa sau EOD. CẤM tự ý chế thêm các kịch bản Chuyển tiền Napas, Mở thẻ, Đổi PIN, Sinh trắc học QĐ 2345... nếu tài liệu không yêu cầu!
 3. CHỈ thiết kế kịch bản (EP, BVA, Decision Table, Validation) cho các TRƯỜNG (FIELDS), THAM SỐ, VÀ HEADERS THỰC SỰ ĐƯỢC NÊU trong tài liệu yêu cầu / API Spec.
 4. TUYỆT ĐỐI CẤM tự ý đưa vào kịch bản các trường không liên quan mà tài liệu không nhắc tới (như tự ý thêm `idempotency_key`, `device_id`, `client_ip`, `vat_mode`, `tiering_method`...).
 5. 100% KỊCH BẢN BẮT BUỘC PHẢI MAP VỚI MÃ `trace_ac_id` CÓ THẬT từ bài phân tích yêu cầu.
@@ -40,7 +40,7 @@ HỆ THỐNG CÁC KỸ THUẬT KIỂM THỬ BẮT BUỘC ÁP DỤNG:
      * Hở dải giá trị (Gap in bands: Dải 1 từ 0-10M, Dải 2 từ 11M-20M -> thiếu khoảng 10M - 11M).
      * Dải cuối cùng bắt buộc `max = null` (Test trường hợp dải cuối `max != null` để kiểm tra validation).
    - Biên Thời gian & Trạng thái Cắt lát (Time & Cut-off BVA):
-     * Áp dụng đúng các mốc thời gian cắt lát (cut-off) và cửa sổ trạng thái đặc thù được nêu tại mục "## Biên & giá trị đặc thù" của DOMAIN PACK bên dưới. TUYỆT ĐỐI KHÔNG áp dụng mốc thời gian của domain khác nếu tài liệu không thuộc domain đó.
+     * Áp dụng đúng các mốc thời gian cắt lát (cut-off) và cửa sổ trạng thái đặc thù được nêu tại mục "## Biên & giá trị đặc thù" của DOMAIN PACK bên dưới (lõi chung + từng module sản phẩm được ghép kèm). TUYỆT ĐỐI KHÔNG áp dụng mốc thời gian của domain khác hoặc của module mà tài liệu không đề cập.
 3. BẢNG QUYẾT ĐỊNH & THUẬT TOÁN PAIRWISE COMBINATORIAL (DECISION TABLE & PAIRWISE TESTING):
    - Khi tính năng có nhiều chiều điều kiện (Dimensions: Loại KH x Loại tài khoản x Kênh x Trạng thái):
      * Thay vì Full Cartesian quá lớn, áp dụng PAIRWISE COMBINATORIAL để rút gọn số bộ kết hợp tối ưu (16 - 20 combos) nhưng đảm bảo 100% các cặp giá trị (2-way combinations) đều được kiểm thử.
@@ -129,16 +129,16 @@ NGUYÊN TẮC CỐT LÕI CẦN TUÂN THỦ:
 ================================================================================
 QUY TẮC PHÂN CẤP GOM NHÓM CHỨC NĂNG NGHIỆP VỤ (GROUP FEATURE & GROUP FUNCTIONAL):
 ================================================================================
-1. `group_feature` (Phân cấp lớn - Banner Tím Đậm Row 22):
+1. `group_feature` (Phân cấp lớn - Banner Tím Đậm):
    - Định dạng chuẩn: `<Số thứ tự>. <Tên tiêu chí AC / Chức năng nghiệp vụ> (<Mã AC>)`
    - Ví dụ: `1. Chặn rút tiền và tất toán trong thời gian EOD (AC-01)`
 
-2. `group_functional` (Phân cấp con - Banner Tím Nhạt Row 23 - DÙNG TÊN CHỨC NĂNG NGHIỆP VỤ THUẦN TÚY):
+2. `group_functional` (Phân cấp con - Banner Tím Nhạt - DÙNG TÊN CHỨC NĂNG NGHIỆP VỤ THUẦN TÚY):
    - Định dạng chuẩn: `<Số thứ tự>.<Tiểu mục>. <Tên nhóm nghiệp vụ / luồng chức năng cụ thể>`
    - TUYỆT ĐỐI KHÔNG ĐƯA TÊN KỸ THUẬT HÀN LÂM (như "Boundary Value Analysis", "BVA", "Equivalence Partitioning", "EP", "Decision Table", "Business Flow", "End-to-End Impact"...) VÀO TIÊU ĐỀ GOM NHÓM!
    - Các kỹ thuật kiểm thử được áp dụng ngầm để bao phủ kịch bản, còn tiêu đề nhóm phân cấp PHẢI đặt bằng văn phong nghiệp vụ ngân hàng rõ ràng, dễ hiểu:
      * `1.1. Luồng thực thi giao dịch thành công`
-     * `1.2. Kiểm tra điều kiện chặn giao dịch trong khung giờ EOD (18h VNT)`
+     * `1.2. Kiểm tra điều kiện chặn giao dịch trong khung giờ EOD`
      * `1.3. Kiểm tra các điều kiện ràng buộc dữ liệu đầu vào và hạn mức`
      * `1.4. Kiểm tra xử lý giao dịch đồng thời và gửi trùng lệnh`
      * `1.5. Kiểm tra xử lý ngoại lệ, timeout và lỗi hệ thống`

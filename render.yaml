@@ -1,0 +1,26 @@
+# Render Blueprint: Web GUI trên gói Free (xem README > Web GUI > 4. Đưa lên Render).
+# Repo public: KHÔNG ghi bí mật vào file này — các biến `sync: false` được nhập ở Render Dashboard.
+services:
+  - type: web
+    name: qa-agent-web
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python web_run.py --host 0.0.0.0
+    envVars:
+      - key: WEB_ACCESS_PASSWORD
+        sync: false
+      - key: LLM_PROVIDER
+        value: google
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL_NAME
+        sync: false
+      - key: JIRA_SERVER_URL
+        sync: false
+      - key: JIRA_EMAIL
+        sync: false
+      - key: JIRA_API_TOKEN
+        sync: false

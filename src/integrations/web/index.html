@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>QA Agent – Tạo bộ Test Case</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%234f46e5'/><path d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<style>
+  :root {
+    --bg: #f5f6fb; --bg-grad: radial-gradient(1200px 600px at 10% -10%, #e9e7ff 0%, transparent 60%), radial-gradient(900px 500px at 110% 10%, #dff3ff 0%, transparent 55%);
+    --surface: #ffffff; --surface-2: #f7f8fc; --line: #e6e8f0; --text: #172033; --muted: #6a7389; --soft: #8a93a8;
+    --brand: #4f46e5; --brand-2: #7c3aed; --brand-soft: #eef0ff; --brand-ink: #3730a3;
+    --ok: #059669; --ok-soft: #e7f8f1; --warn: #b45309; --warn-soft: #fff7e8; --warn-line: #fcd9a0;
+    --bad: #dc2626; --bad-soft: #fef0f0; --bad-line: #f8c4c4; --info: #0284c7;
+    --shadow-sm: 0 1px 2px rgba(23, 32, 51, .06); --shadow: 0 6px 24px -8px rgba(23, 32, 51, .16), 0 1px 3px rgba(23, 32, 51, .06);
+    --shadow-lg: 0 20px 50px -18px rgba(49, 46, 129, .35); --radius: 18px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1020; --bg-grad: radial-gradient(1200px 600px at 10% -10%, #1e1b4b 0%, transparent 60%), radial-gradient(900px 500px at 110% 10%, #0c2a3d 0%, transparent 55%);
+      --surface: #161a2e; --surface-2: #1c2138; --line: #2a3150; --text: #e7e9f3; --muted: #a0a8c3; --soft: #7d86a3;
+      --brand-soft: #23244a; --brand-ink: #c7c9ff; --ok-soft: #0f2d26; --warn-soft: #2e2412; --warn-line: #5c4518;
+      --bad-soft: #321a1d; --bad-line: #5e2a2f; --warn: #f2b45a; --ok: #34d399; --bad: #f87171;
+      --shadow: 0 6px 24px -8px rgba(0, 0, 0, .6); --shadow-lg: 0 20px 50px -18px rgba(0, 0, 0, .7);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-grad), var(--bg); background-attachment: fixed; color: var(--text); font-size: 15px; line-height: 1.55;
+    display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
+  }
+  svg { flex-shrink: 0; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; padding: 12px 24px;
+    background: color-mix(in srgb, var(--surface) 78%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line);
+  }
+  .logo { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--brand), var(--brand-2)); box-shadow: 0 6px 16px -6px rgba(79, 70, 229, .6); }
+  .brand h1 { font-size: 16.5px; margin: 0; letter-spacing: -.01em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); }
+  .pill.ready .dot { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .pill.busy { color: var(--brand-ink); background: var(--brand-soft); border-color: transparent; }
+  .pill.busy .dot { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+  .pill.wait { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .pill.wait .dot { background: var(--warn); }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; font-weight: 600; font-size: 14px; box-shadow: var(--shadow-sm); transition: border-color .15s, transform .15s, background .15s; }
+  .btn:hover { border-color: var(--brand); color: var(--brand-ink); }
+  .btn:active { transform: translateY(1px); }
+
+  /* ---------- Main ---------- */
+  main { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+  #messages { padding: 8px 0 24px; }
+
+  /* ---------- Layout & lịch sử hội thoại ---------- */
+  .app { flex: 1; display: flex; min-height: 0; }
+  .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .sidebar { width: 296px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 12px; border-right: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 62%, transparent); backdrop-filter: blur(12px); }
+  .new-chat { width: 100%; justify-content: center; padding: 11px 14px; color: #fff; border: 0; background: linear-gradient(135deg, var(--brand), var(--brand-2)); box-shadow: 0 8px 18px -10px rgba(79, 70, 229, .8); }
+  .new-chat:hover { color: #fff; filter: brightness(1.06); }
+  .search { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--soft); }
+  .search:focus-within { border-color: var(--brand); }
+  .search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: 14px; color: var(--text); }
+  .convs { flex: 1; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+  .group-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--soft); margin: 14px 10px 6px; }
+  .conv { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 9px 10px; border-radius: 12px; border: 1px solid transparent; background: transparent; margin-bottom: 2px; }
+  .conv:hover { background: var(--surface); border-color: var(--line); }
+  .conv.active { background: var(--brand-soft); }
+  .conv.active .t { color: var(--brand-ink); }
+  .conv-body { min-width: 0; flex: 1; }
+  .conv .t { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv .m { font-size: 12px; color: var(--muted); }
+  .sd { width: 8px; height: 8px; border-radius: 50%; margin-top: 7px; flex-shrink: 0; background: var(--soft); }
+  .sd.ready { background: var(--ok); } .sd.awaiting { background: var(--warn); } .sd.error { background: var(--bad); }
+  .sd.running { background: var(--brand); animation: pulse 1.2s ease-in-out infinite; }
+  .empty-list { color: var(--soft); font-size: 13px; text-align: center; padding: 28px 10px; line-height: 1.6; }
+  .side-note { font-size: 11.5px; color: var(--soft); padding: 0 6px; }
+  .topbar .menu-btn { display: none; }
+  .scrim { display: none; }
+  @media (max-width: 900px) {
+    .sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; background: var(--surface); box-shadow: var(--shadow-lg); transform: translateX(-105%); transition: transform .2s ease; }
+    body.side-open .sidebar { transform: none; }
+    body.side-open .scrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(15, 18, 35, .35); }
+    .topbar .menu-btn { display: grid; }
+  }
+
+  .hero { margin: 28px 0 8px; padding: 32px; border-radius: 24px; color: #fff; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 55%, #0ea5e9 130%); box-shadow: var(--shadow-lg); position: relative; overflow: hidden; }
+  .hero::after { content: ""; position: absolute; right: -60px; top: -60px; width: 260px; height: 260px; border-radius: 50%; background: rgba(255, 255, 255, .12); }
+  .hero::before { content: ""; position: absolute; right: 80px; bottom: -90px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255, 255, 255, .08); }
+  .hero h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.02em; position: relative; z-index: 1; }
+  .hero p { margin: 0; opacity: .9; max-width: 560px; position: relative; z-index: 1; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 18px 0; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow-sm); }
+  .step .ic { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 10px; background: var(--brand-soft); color: var(--brand); }
+  .step b { display: block; margin-bottom: 4px; }
+  .step span { color: var(--muted); font-size: 13.5px; }
+  .suggest-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 22px 0 10px; }
+  .suggests { display: flex; flex-wrap: wrap; gap: 10px; }
+  .suggest { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; box-shadow: var(--shadow-sm); transition: all .15s; }
+  .suggest:hover { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-ink); transform: translateY(-1px); }
+  @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } .hero { padding: 24px; } .topbar { padding: 10px 14px; } .brand p { display: none; } }
+
+  /* ---------- Messages ---------- */
+  .msg { display: flex; gap: 12px; margin: 18px 0; animation: rise .25s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .msg.user { justify-content: flex-end; }
+  .avatar { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex-shrink: 0; background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; font-weight: 700; font-size: 12px; box-shadow: 0 4px 12px -4px rgba(79, 70, 229, .6); }
+  .body { min-width: 0; flex: 1; max-width: 100%; }
+  .msg.user .body { flex: 0 1 auto; max-width: 78%; }
+  .bubble { background: var(--surface); border: 1px solid var(--line); border-radius: 4px var(--radius) var(--radius) var(--radius); padding: 12px 16px; box-shadow: var(--shadow-sm); white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user .bubble { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; border: 0; border-radius: var(--radius) 4px var(--radius) var(--radius); box-shadow: 0 8px 20px -10px rgba(79, 70, 229, .7); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, .18); border-radius: 8px; padding: 3px 9px; font-size: 13px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 4px var(--radius) var(--radius) var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
+  .card-head .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; }
+  .card-body { padding: 16px 18px; }
+  .card.ask { border-color: var(--warn-line); }
+  .card.ask .card-head { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
+  .card.ask .card-head .ic { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .card.err { border-color: var(--bad-line); }
+  .card.err .card-head { background: var(--bad-soft); color: var(--bad); border-color: var(--bad-line); }
+  .card.ok .card-head { background: linear-gradient(90deg, var(--ok-soft), transparent); }
+  .card.ok .card-head .ic { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; display: flex; gap: 6px; align-items: flex-start; }
+
+  /* Progress */
+  .progress-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .progress-top b { font-size: 14px; }
+  .progress-top .pct { margin-left: auto; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-bottom: 14px; border: 1px solid var(--line); }
+  .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand), var(--brand-2), #0ea5e9); transition: width .5s ease; }
+  .bar.done i { background: var(--ok); }
+  .steplist { list-style: none; margin: 0; padding: 0; }
+  .steplist li { display: flex; gap: 12px; align-items: flex-start; padding: 7px 0; position: relative; }
+  .steplist li:not(:last-child)::after { content: ""; position: absolute; left: 12px; top: 33px; bottom: -5px; width: 2px; background: var(--line); }
+  .st { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; border: 2px solid var(--line); background: var(--surface); color: var(--soft); }
+  .st.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .st.run { border-color: var(--brand); border-right-color: transparent; animation: spin .9s linear infinite; }
+  .st.wait { background: var(--warn); border-color: var(--warn); color: #fff; }
+  .st.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  .st.bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .steplist .txt { padding-top: 2px; font-size: 14px; }
+  .steplist li.pending .txt { color: var(--soft); }
+  .steplist li.run .txt { color: var(--brand-ink); font-weight: 600; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Questions */
+  .qlist { counter-reset: q; list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
+  .qlist li { counter-increment: q; display: flex; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+  .qlist li::before { content: counter(q); width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; font-size: 12.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line); }
+  .quick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .quick button { border: 1px dashed var(--warn-line); background: var(--warn-soft); color: var(--warn); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+  .quick button:hover { border-style: solid; }
+
+  /* Result */
+  .result-top { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  .ring { --v: 0; --c: var(--ok); width: 92px; height: 92px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; background: conic-gradient(var(--c) calc(var(--v) * 1%), var(--surface-2) 0); }
+  .ring > div { width: 74px; height: 74px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; text-align: center; line-height: 1.1; }
+  .ring b { font-size: 22px; letter-spacing: -.02em; }
+  .ring small { display: block; color: var(--muted); font-size: 11px; }
+  .stats { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; min-width: 260px; }
+  .stat { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat span { display: block; color: var(--muted); font-size: 12px; }
+  .stat b { font-size: 17px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .download { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 14px 16px; border-radius: 14px; text-decoration: none; color: #fff; background: linear-gradient(135deg, #059669, #10b981); box-shadow: 0 10px 24px -12px rgba(5, 150, 105, .8); transition: transform .15s, box-shadow .15s; }
+  .download:hover { transform: translateY(-1px); box-shadow: 0 14px 28px -12px rgba(5, 150, 105, .9); }
+  .download .fi { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: rgba(255, 255, 255, .2); }
+  .download b { display: block; font-size: 15px; }
+  .download small { opacity: .85; font-size: 12.5px; word-break: break-all; }
+  .download .arrow { margin-left: auto; }
+  details { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+  summary { cursor: pointer; font-weight: 600; padding: 10px 14px; list-style: none; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--soft); border-bottom: 2px solid var(--soft); transform: rotate(45deg); transition: transform .2s; }
+  details[open] summary::after { transform: rotate(-135deg); }
+  details ul { margin: 0; padding: 0 14px 12px 34px; font-size: 14px; }
+  details li { margin: 5px 0; }
+  .sev { font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 6px; background: var(--bad-soft); color: var(--bad); }
+  .sev.Major { background: var(--warn-soft); color: var(--warn); }
+  .sev.Minor, .sev.Info { background: var(--brand-soft); color: var(--brand-ink); }
+  .open-q { margin-top: 14px; border-radius: 12px; padding: 12px 14px; background: var(--warn-soft); border: 1px solid var(--warn-line); }
+  .open-q ol { margin: 6px 0 0; padding-left: 20px; }
+  code { background: color-mix(in srgb, var(--brand) 10%, transparent); color: var(--brand-ink); padding: 1px 6px; border-radius: 6px; font-size: .92em; }
+  .msg.user code { background: rgba(255, 255, 255, .2); color: #fff; }
+
+  .typing { display: inline-flex; gap: 5px; padding: 14px 16px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); opacity: .35; animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+  /* ---------- Composer ---------- */
+  footer { padding: 10px 0 18px; background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  #pending { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  #pending .file { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); font-size: 13px; }
+  #pending .file small { color: var(--soft); }
+  #pending .file button { border: 0; background: var(--surface-2); width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+  #pending .file button:hover { background: var(--bad-soft); color: var(--bad); }
+  .composer { display: flex; gap: 8px; align-items: flex-end; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); box-shadow: var(--shadow), 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent); }
+  .icon-btn { width: 42px; height: 42px; border-radius: 13px; border: 0; background: transparent; display: grid; place-items: center; color: var(--muted); transition: background .15s, color .15s; }
+  .icon-btn:hover { background: var(--brand-soft); color: var(--brand); }
+  textarea { flex: 1; resize: none; min-height: 42px; max-height: 220px; font: inherit; color: inherit; padding: 10px 4px; border: 0; outline: none; background: transparent; }
+  textarea::placeholder { color: var(--soft); }
+  textarea:placeholder-shown { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .send { width: 42px; height: 42px; border-radius: 13px; border: 0; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--brand), var(--brand-2)); box-shadow: 0 6px 14px -6px rgba(79, 70, 229, .8); transition: transform .15s, opacity .15s; }
+  .send:hover { transform: translateY(-1px); }
+  .send:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .under { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 12.5px; color: var(--soft); flex-wrap: wrap; }
+  @media (max-width: 720px) { .under .keys { display: none; } }
+  #status { color: var(--muted); }
+  kbd { font-family: inherit; font-size: 11.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface); }
+  #error { color: var(--bad); font-size: 13.5px; font-weight: 600; margin-top: 8px; }
+  #error:empty { display: none; }
+
+  .dropzone { position: fixed; inset: 0; z-index: 20; display: none; place-items: center; background: color-mix(in srgb, var(--brand) 18%, transparent); backdrop-filter: blur(4px); }
+  .dropzone.on { display: grid; }
+  .dropzone div { padding: 36px 48px; border-radius: 24px; border: 3px dashed var(--brand); background: var(--surface); text-align: center; box-shadow: var(--shadow-lg); }
+  .dropzone b { display: block; font-size: 18px; margin-top: 10px; }
+  .dropzone span { color: var(--muted); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn menu-btn" id="menuBtn" title="Lịch sử trò chuyện" aria-label="Lịch sử trò chuyện">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+  <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6.2L4.6 18.4A1.7 1.7 0 0 0 6.1 21h11.8a1.7 1.7 0 0 0 1.5-2.6L14 9.2V3"/><path d="M7.5 15h9"/></svg>
+  </div>
+  <div class="brand">
+    <h1>QA Agent</h1>
+    <p>Tạo bộ test case chuẩn từ yêu cầu nghiệp vụ, chỉ bằng vài câu chat</p>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill ready" id="pill"><span class="dot"></span><span id="pillText">Sẵn sàng</span></span>
+</header>
+
+<div class="app">
+<aside class="sidebar" id="sidebar">
+  <button class="btn new-chat" id="newBtn" title="Bắt đầu một yêu cầu khác">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    Cuộc trò chuyện mới
+  </button>
+  <label class="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="searchInput" type="search" placeholder="Tìm cuộc trò chuyện…" autocomplete="off">
+  </label>
+  <nav class="convs" id="convs"></nav>
+  <div class="side-note">Lịch sử lưu trên server, chỉ hiện các cuộc trò chuyện tạo từ trình duyệt này.</div>
+</aside>
+<div class="scrim" id="scrim"></div>
+<div class="chat">
+
+<main id="main">
+  <div class="wrap">
+    <section id="welcome">
+      <div class="hero">
+        <h2>Xin chào 👋 Hôm nay cần test tính năng gì?</h2>
+        <p>Gửi User Story, mã Jira hoặc tài liệu. Agent sẽ phân tích, hỏi lại chỗ còn thiếu và trả về file Excel test case đã được kiểm duyệt.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+          <b>1. Gửi yêu cầu</b><span>Dán nội dung, nhập mã Jira (vd <code>VWCBT-3800</code>) hoặc kéo thả file Word / PDF / Markdown.</span>
+        </div>
+        <div class="step">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 16.5v.01"/></svg></div>
+          <b>2. Trả lời câu hỏi</b><span>Thiếu thông tin, Agent sẽ hỏi. Bạn trả lời bằng lời bình thường, không cần đúng mẫu.</span>
+        </div>
+        <div class="step">
+          <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></div>
+          <b>3. Tải file &amp; góp ý</b><span>Tải Excel. Muốn sửa cứ nhắn, ví dụ "bỏ TC 05" — file được cập nhật ngay.</span>
+        </div>
+      </div>
+      <div class="suggest-title">Thử nhanh</div>
+      <div class="suggests">
+        <button class="suggest" id="exampleBtn">✍️ Yêu cầu mẫu: Chuyển tiền nội bộ</button>
+        <button class="suggest" data-fill="Tạo test case cho ticket ">🎫 Tạo từ mã Jira</button>
+        <button class="suggest" id="uploadSuggest">📄 Tải tài liệu lên</button>
+      </div>
+    </section>
+    <div id="messages"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div id="pending"></div>
+    <div class="composer" id="composer">
+      <button class="icon-btn" id="attachBtn" title="Đính kèm tài liệu (.docx, .pdf, .md, .txt, .json, .yaml)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
+      </button>
+      <input type="file" id="fileInput" multiple hidden accept=".docx,.pdf,.md,.markdown,.txt,.json,.yaml,.yml">
+      <textarea id="input" rows="1"></textarea>
+      <button class="send" id="sendBtn" title="Gửi (Enter)" aria-label="Gửi">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+    <div id="error"></div>
+    <div class="under">
+      <span id="status"></span>
+      <span class="keys"><kbd>Enter</kbd> gửi · <kbd>Shift</kbd>+<kbd>Enter</kbd> xuống dòng</span>
+    </div>
+  </div>
+</footer>
+</div>
+</div>
+
+<div class="dropzone" id="dropzone">
+  <div>
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/></svg>
+    <b>Thả file vào đây</b>
+    <span>.docx · .pdf · .md · .txt · .json · .yaml — tối đa 20 MB/file</span>
+  </div>
+</div>
+
+<script>
+const EXAMPLE = `Tính năng: Chuyển tiền nội bộ trên Mobile App
+Mô tả: Là khách hàng cá nhân, tôi muốn chuyển tiền giữa 2 tài khoản trong cùng ngân hàng.
+Acceptance Criteria:
+- AC1: Số tiền tối thiểu 10,000 VND mỗi giao dịch.
+- AC2: Hệ thống kiểm tra số dư khả dụng trước khi chuyển.
+- AC3: Giao dịch thành công hiển thị màn hình xác nhận kèm mã giao dịch.`;
+const QUICK_REPLIES = ["Tài liệu không có thông tin này", "Bạn tự chọn giá trị hợp lý", "Tính năng này không có API"];
+const ICON = {
+  check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  q: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 16.5v.01"/></svg>',
+  x: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>',
+  sync: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></svg>',
+  xls: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 12l5 6M14 12l-5 6"/></svg>',
+  down: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg>',
+  file: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+// Trạng thái từng bước tiến trình suy ra từ biểu tượng đầu dòng do engine gửi (• ✅ / ⏳ / 🔄 / ❓ / ⚠️ / ⚪ / ❌).
+const STEP_STATE = { "✅": "done", "⏳": "run", "🔄": "run", "❓": "wait", "⚠️": "warn", "⚪": "pending", "❌": "bad" };
+
+const $ = (id) => document.getElementById(id);
+const els = { main: $("main"), messages: $("messages"), welcome: $("welcome"), input: $("input"), send: $("sendBtn"),
+  attach: $("attachBtn"), fileInput: $("fileInput"), pending: $("pending"), status: $("status"), error: $("error"),
+  pill: $("pill"), pillText: $("pillText"), dropzone: $("dropzone"), convs: $("convs"), search: $("searchInput") };
+// Mã trình duyệt: danh sách lịch sử chỉ gồm hội thoại tạo từ trình duyệt này. Không dùng crypto.randomUUID
+// vì API đó chỉ có trên HTTPS/localhost, còn đồng nghiệp truy cập qua http://<IP-LAN>.
+const clientId = localStorage.getItem("qa_client_id") || (() => {
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  localStorage.setItem("qa_client_id", id);
+  return id;
+})();
+const HDR = { "X-Client-Id": clientId };
+const STATUS_LABEL = { ready: "Đã có kết quả", awaiting: "Chờ bạn trả lời", error: "Có lỗi", draft: "Chưa hoàn tất", running: "Đang xử lý" };
+let sid = localStorage.getItem("qa_session_id");
+let after = 0;
+let files = [];
+let sending = false;
+let pollTimer = null;
+let pollToken = 0;
+let lastRunning = null;
+let dragDepth = 0;
+let listQuery = "";
+let searchTimer = null;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+// Định dạng tối giản kiểu Slack: **đậm**, *đậm*, _nghiêng_, `code`.
+function fmt(s) {
+  return esc(s)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/\*([^*\n]+)\*/g, "<b>$1</b>")
+    .replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,!?)])/g, "$1<i>$2</i>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+}
+function fileSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+function nearBottom() { return els.main.scrollHeight - els.main.scrollTop - els.main.clientHeight < 180; }
+function scrollDown(force) { if (force || nearBottom()) els.main.scrollTop = els.main.scrollHeight; }
+
+function addMessage(side, inner, id = null) {
+  const row = document.createElement("div");
+  row.className = `msg ${side}`;
+  if (id) row.id = id;
+  row.innerHTML = side === "bot" ? `<div class="avatar">QA</div><div class="body">${inner}</div>` : `<div class="body">${inner}</div>`;
+  els.messages.insertBefore(row, $("typing"));
+  els.welcome.style.display = "none";
+  return row;
+}
+function card(kind, icon, title, body) {
+  return `<div class="card ${kind}"><div class="card-head"><span class="ic">${icon}</span><span>${title}</span></div><div class="card-body">${body}</div></div>`;
+}
+
+function progressHtml(lines) {
+  const items = lines.map((raw) => {
+    let line = raw.replace(/^\s*•\s*/, "");
+    const icon = Object.keys(STEP_STATE).find((k) => line.startsWith(k));
+    const state = icon ? STEP_STATE[icon] : "pending";
+    if (icon) line = line.slice(icon.length).trim();
+    const m = line.match(/^\*?\[(\d+)\/\d+\]\s*Node \d+:\s*/);
+    const num = m ? m[1] : "";
+    if (m) line = (line.startsWith("*") ? "*" : "") + line.slice(m[0].length);
+    const mark = { done: ICON.check.replace(/18/g, "14"), wait: "?", warn: "!", bad: "×", run: "", pending: num }[state];
+    return { state, html: `<li class="${state}"><span class="st ${state}">${mark}</span><span class="txt">${fmt(line)}</span></li>` };
+  });
+  const done = items.filter((i) => i.state === "done" || i.state === "warn").length;
+  const pct = lines.length ? Math.round((done / lines.length) * 100) : 0;
+  const waiting = items.some((i) => i.state === "wait");
+  const title = pct === 100 ? "Hoàn tất" : waiting ? "Tạm dừng — chờ bạn trả lời" : "Agent đang xử lý";
+  return `<div class="card"><div class="card-body">
+    <div class="progress-top"><b>${title}</b><span class="pct">${pct}%</span></div>
+    <div class="bar ${pct === 100 ? "done" : ""}"><i style="width:${Math.max(pct, 4)}%"></i></div>
+    <ul class="steplist">${items.map((i) => i.html).join("")}</ul></div></div>`;
+}
+
+function renderResult(e) {
+  const score = e.score ?? 0;
+  const ringColor = e.passed ? "var(--ok)" : score >= 70 ? "var(--warn)" : "var(--bad)";
+  const gate = e.passed == null ? "" : e.passed
+    ? `<span class="badge ok">✓ Đạt chuẩn</span>` : `<span class="badge bad">Chưa đạt chuẩn</span>`;
+  let body = `<div class="result-top">
+      <div class="ring" style="--v:${score};--c:${ringColor}"><div><div><b>${e.score ?? "–"}</b><small>/100 điểm</small></div></div></div>
+      <div class="stats">
+        <div class="stat"><span>Test case</span><b>${e.tc_count}</b></div>
+        <div class="stat"><span>Tiêu chí (AC)</span><b>${e.ac_count}</b></div>
+        <div class="stat"><span>Chất lượng</span>${gate || "<b>N/A</b>"}</div>
+        <div class="stat"><span>Phân hệ</span><b style="font-size:14px">${esc(e.domain)}</b></div>
+      </div>
+    </div>`;
+  if (e.download) {
+    body += `<a class="download" href="${esc(e.download)}">
+      <span class="fi">${ICON.xls}</span>
+      <span><b>Tải file Excel</b><small>${esc(e.file_name)}</small></span>
+      <span class="arrow">${ICON.down}</span></a>`;
+  }
+  if (e.updated) {
+    const changes = e.changes.length ? e.changes : ["Không có thay đổi nào được áp dụng."];
+    body += `<details open><summary>✏️ Thay đổi trong lần cập nhật này (${e.changes.length})</summary><ul>${changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></details>`;
+  } else if (e.risks.length) {
+    body += `<details><summary>🎯 Rủi ro chính được xác định (${e.risks.length})</summary><ul>${e.risks.map((r) =>
+      `<li><b>${esc(r.id)}</b> · ${esc(r.level)} — ${esc(r.title)}</li>`).join("")}</ul></details>`;
+  }
+  if (e.issues.length) {
+    body += `<details><summary>🔍 ${e.issue_total} góp ý từ reviewer</summary>
+      ${e.gate_reasons.length ? `<div class="hint" style="margin:0 14px 8px">${e.gate_reasons.map(esc).join("; ")}</div>` : ""}
+      <ul>${e.issues.map((i) => `<li><span class="sev ${esc(i.severity)}">${esc(i.severity)}</span> <b>${esc(i.tc)}</b> — ${esc(i.description)}<br><span style="color:var(--muted)">Đề xuất: ${esc(i.fix)}</span></li>`).join("")}</ul>
+      ${e.issue_total > e.issues.length ? `<div class="hint" style="margin:0 14px 12px">Xem đầy đủ trong file Excel.</div>` : ""}
+    </details>`;
+  }
+  if (e.open_questions.length) {
+    body += `<div class="open-q"><b>❓ Còn ${e.open_questions.length} điểm chưa có thông tin — Agent không tự bịa:</b>
+      <ol>${e.open_questions.map((q) => `<li>${esc(q)}</li>`).join("")}</ol>
+      <div class="hint">Test case liên quan được tô vàng trong file. Trả lời bên dưới để Agent cập nhật.</div></div>`;
+  }
+  body += `<div class="hint">💬 Muốn sửa gì? Cứ nhắn bên dưới hoặc gửi thêm tài liệu — file sẽ được cập nhật ngay.</div>`;
+  const title = e.updated ? `Đã cập nhật bộ test case · ${esc(e.feature)}` : `Bộ test case đã sẵn sàng · ${esc(e.feature)}`;
+  addMessage("bot", card("ok", e.updated ? ICON.sync : ICON.check, title, body));
+}
+
+function renderEvent(e) {
+  switch (e.type) {
+    case "user": {
+      const chips = e.files.length ? `<div class="chips">${e.files.map((f) => `<span class="chip">${ICON.file} ${esc(f)}</span>`).join("")}</div>` : "";
+      addMessage("user", `<div class="bubble">${esc(e.text)}${chips}</div>`);
+      break;
+    }
+    case "progress": {
+      const id = `progress-${e.run}`;
+      const existing = document.getElementById(id);
+      if (existing) existing.querySelector(".body").innerHTML = progressHtml(e.lines);
+      else addMessage("bot", progressHtml(e.lines), id);
+      break;
+    }
+    case "notice":
+      addMessage("bot", `<div class="bubble">${fmt(e.text)}</div>`);
+      break;
+    case "ask":
+      addMessage("bot", card("ask", ICON.q, `Cần bạn làm rõ${e.feature ? ` · ${esc(e.feature)}` : ""}`,
+        `<div>Tài liệu còn thiếu vài thông tin quan trọng. Để không đoán sai nghiệp vụ, bạn giúp mình trả lời nhé:</div>
+        <ol class="qlist">${e.questions.map((q) => `<li><span>${esc(q)}</span></li>`).join("")}</ol>
+        <div class="quick">${QUICK_REPLIES.map((r) => `<button data-reply="${esc(r)}">${esc(r)}</button>`).join("")}</div>
+        <div class="hint">Trả lời tự do bên dưới — từng phần, gộp nhiều câu, hoặc bấm gợi ý ở trên rồi chỉnh lại.</div>`));
+      break;
+    case "result":
+      renderResult(e);
+      break;
+    case "error":
+      addMessage("bot", card("err", ICON.x, "Có lỗi xảy ra",
+        `<div>${esc(e.text)}</div><div class="hint">Bạn có thể nhắn lại hoặc bổ sung thông tin để thử tiếp.</div>`));
+      break;
+    case "guide":
+      addMessage("bot", card("ask", ICON.x, esc(e.reason), `<div style="white-space:pre-wrap">${fmt(e.guide)}</div>`));
+      break;
+  }
+}
+
+function renderState(st) {
+  let pill = ["ready", "Sẵn sàng"];
+  let text = "Dán User Story / mã Jira hoặc đính kèm tài liệu để bắt đầu.";
+  let placeholder = "Nhập yêu cầu, mã Jira, hoặc kéo thả tài liệu vào đây…";
+  if (st.running) {
+    pill = ["busy", "Đang xử lý"];
+    text = "Agent đang làm việc — bạn vẫn có thể nhắn thêm, Agent sẽ áp dụng ngay.";
+    placeholder = "Nhắn thêm thông tin hoặc góp ý (không cần chờ)…";
+  } else if (st.awaiting) {
+    pill = ["wait", "Chờ bạn trả lời"];
+    text = "Agent đang chờ bạn trả lời câu hỏi ở trên.";
+    placeholder = "Nhập câu trả lời của bạn…";
+  } else if (st.suite_ready) {
+    pill = ["ready", "Đã có kết quả"];
+    text = "Gửi góp ý hoặc tài liệu bổ sung để cập nhật bộ test case.";
+    placeholder = 'Ví dụ: "bỏ TC 05", "thêm case OTP hết hạn", "đổi TC 03 sang Critical"…';
+  } else if (st.has_request) {
+    text = "Bổ sung thông tin để Agent tiếp tục.";
+  }
+  els.pill.className = `pill ${pill[0]}`;
+  els.pillText.textContent = pill[1];
+  els.status.textContent = text;
+  els.input.placeholder = placeholder;
+  $("typing").style.display = st.running ? "" : "none";
+}
+
+async function poll() {
+  clearTimeout(pollTimer);
+  // Chỉ lượt poll mới nhất của hội thoại đang mở được vẽ: tránh vẽ trùng sự kiện hoặc vẽ nhầm hội thoại vừa rời đi.
+  const token = ++pollToken;
+  try {
+    const res = await fetch(`/api/sessions/${sid}/events?after=${after}`);
+    if (token !== pollToken) return;
+    if (res.status === 404) { await newSession(); return; }
+    const data = await res.json();
+    if (token !== pollToken) return;
+    const stick = nearBottom();
+    let listChanged = lastRunning !== null && lastRunning !== data.state.running;
+    for (const e of data.events) {
+      renderEvent(e);
+      after = e.id + 1;
+      if (["user", "ask", "result", "error"].includes(e.type)) listChanged = true;
+    }
+    lastRunning = data.state.running;
+    renderState(data.state);
+    if (data.events.length) scrollDown(stick);
+    if (listChanged) loadList();
+    pollTimer = setTimeout(poll, data.state.running ? 1000 : 2500);
+  } catch (err) {
+    if (token !== pollToken) return;
+    els.status.textContent = "⚠️ Mất kết nối tới server, đang thử lại…";
+    pollTimer = setTimeout(poll, 3000);
+  }
+}
+
+function resetMessages() {
+  els.messages.innerHTML = `<div class="msg" id="typing" style="display:none"><div class="avatar">QA</div><div class="body"><div class="bubble typing"><i></i><i></i><i></i></div></div></div>`;
+}
+
+function showConversation(id) {
+  sid = id;
+  localStorage.setItem("qa_session_id", sid);
+  after = 0; lastRunning = null;
+  resetMessages();
+  els.welcome.style.display = "";
+  files = []; renderPending();
+  els.error.textContent = "";
+  document.body.classList.remove("side-open");
+  markActive();
+  poll();
+}
+
+async function newSession() {
+  clearTimeout(pollTimer);
+  pollToken++;
+  const res = await fetch("/api/sessions", { method: "POST", headers: HDR });
+  showConversation((await res.json()).session_id);
+  els.input.focus();
+}
+
+function openConversation(id) {
+  if (id === sid) { document.body.classList.remove("side-open"); return; }
+  clearTimeout(pollTimer);
+  showConversation(id);
+}
+
+function timeLabel(ts) {
+  const d = new Date(ts * 1000);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function markActive() {
+  els.convs.querySelectorAll(".conv").forEach((b) => b.classList.toggle("active", b.dataset.id === sid));
+}
+
+async function loadList() {
+  try {
+    const res = await fetch(`/api/conversations?q=${encodeURIComponent(listQuery)}`, { headers: HDR });
+    if (!res.ok) return;
+    renderList((await res.json()).conversations);
+  } catch (err) { /* Giữ danh sách cũ khi mất kết nối tạm thời. */ }
+}
+
+function renderList(items) {
+  if (!items.length) {
+    els.convs.innerHTML = `<div class="empty-list">${listQuery
+      ? "Không tìm thấy cuộc trò chuyện phù hợp."
+      : "Chưa có cuộc trò chuyện nào.<br>Gửi yêu cầu đầu tiên để bắt đầu!"}</div>`;
+    return;
+  }
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+  const groups = [["Hôm nay", []], ["7 ngày qua", []], ["Cũ hơn", []]];
+  for (const c of items) groups[c.updated_at >= startToday ? 0 : c.updated_at >= startToday - 6 * 86400 ? 1 : 2][1].push(c);
+  els.convs.innerHTML = groups.filter(([, list]) => list.length).map(([label, list]) =>
+    `<div class="group-label">${label}</div>` + list.map((c) => {
+      const status = c.running ? "running" : c.status;
+      return `<button class="conv" data-id="${esc(c.id)}" title="${esc(c.title)}">
+        <span class="sd ${esc(status)}"></span>
+        <span class="conv-body"><div class="t">${esc(c.title)}</div><div class="m">${STATUS_LABEL[status] || ""} · ${timeLabel(c.updated_at)}</div></span>
+      </button>`;
+    }).join("")).join("");
+  markActive();
+}
+
+function renderPending() {
+  els.pending.innerHTML = files.map((f, i) =>
+    `<span class="file">${ICON.file} ${esc(f.name)} <small>${fileSize(f.size)}</small><button data-i="${i}" title="Bỏ file">${ICON.close}</button></span>`).join("");
+  els.pending.querySelectorAll("button").forEach((b) => b.onclick = () => { files.splice(+b.dataset.i, 1); renderPending(); });
+}
+function addFiles(list) { files.push(...list); renderPending(); els.input.focus(); }
+
+async function send() {
+  const text = els.input.value.trim();
+  if (sending || (!text && !files.length)) return;
+  sending = true; els.send.disabled = true; els.error.textContent = "";
+  const form = new FormData();
+  form.append("text", text);
+  files.forEach((f) => form.append("files", f));
+  try {
+    const res = await fetch(`/api/sessions/${sid}/messages`, { method: "POST", body: form });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      els.error.textContent = "⚠️ " + (body.detail || `Gửi không thành công (${res.status}).`);
+    } else {
+      els.input.value = ""; files = []; renderPending(); autoSize();
+    }
+  } catch (err) {
+    els.error.textContent = "⚠️ Không gửi được, vui lòng kiểm tra kết nối.";
+  } finally {
+    sending = false; els.send.disabled = false;
+    await poll(); scrollDown(true);
+  }
+}
+
+function fillInput(text) {
+  const cur = els.input.value.trim();
+  els.input.value = cur ? `${cur}\n${text}` : text;
+  autoSize(); els.input.focus();
+  els.input.setSelectionRange(els.input.value.length, els.input.value.length);
+}
+function autoSize() { els.input.style.height = "auto"; els.input.style.height = Math.min(els.input.scrollHeight, 220) + "px"; }
+
+els.send.onclick = send;
+els.input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+els.input.addEventListener("input", autoSize);
+els.attach.onclick = () => els.fileInput.click();
+$("uploadSuggest").onclick = () => els.fileInput.click();
+els.fileInput.onchange = () => { addFiles([...els.fileInput.files]); els.fileInput.value = ""; };
+$("newBtn").onclick = newSession;
+$("menuBtn").onclick = () => document.body.classList.toggle("side-open");
+$("scrim").onclick = () => document.body.classList.remove("side-open");
+els.convs.addEventListener("click", (e) => { const b = e.target.closest(".conv"); if (b) openConversation(b.dataset.id); });
+els.search.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { listQuery = els.search.value.trim(); loadList(); }, 250);
+});
+$("exampleBtn").onclick = () => { els.input.value = EXAMPLE; autoSize(); els.input.focus(); };
+document.querySelectorAll("[data-fill]").forEach((b) => b.onclick = () => fillInput(b.dataset.fill));
+els.messages.addEventListener("click", (e) => { const b = e.target.closest("[data-reply]"); if (b) fillInput(b.dataset.reply); });
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+document.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; els.dropzone.classList.add("on"); });
+document.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; els.dropzone.classList.remove("on"); } });
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; els.dropzone.classList.remove("on");
+  if (e.dataTransfer?.files?.length) addFiles([...e.dataTransfer.files]);
+});
+
+resetMessages();
+if (sid) showConversation(sid); else newSession();
+loadList();
+setInterval(loadList, 15000);
+</script>
+</body>
+</html>

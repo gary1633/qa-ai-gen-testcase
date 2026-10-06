@@ -27,8 +27,9 @@ Bóc tách rạch ròi 3 tầng thông tin cho mọi chi tiết nghiệp vụ:
   được nêu rõ trong tài liệu/schema. Tuyệt đối cấm bịa hoặc nhét thêm field không liên quan (ví dụ
   điển hình hay bị tự chế thêm: `idempotency_key`, `device_id`, `client_ip`, `vat_mode`,
   `tiering_method`) nếu tài liệu gốc không hề có.
-- **Assumptions** (`[GIẢ ĐỊNH]`): khi thiếu một chi tiết nhỏ mang tính chuẩn mực ngân hàng, đánh
-  dấu rõ kèm lý do đưa ra giả định.
+- **Assumptions** (`[GIẢ ĐỊNH]`): chỉ dùng cho chi tiết nhỏ không ảnh hưởng kết quả kiểm chứng,
+  đánh dấu rõ kèm lý do. Tham số nghiệp vụ (ngưỡng, hạn mức, giờ, thứ tự, lãi suất...) KHÔNG được
+  giả định — thiếu thì đưa vào Ambiguities & câu hỏi làm rõ.
 - **Ambiguities & Gaps**: chỉ rõ điểm chưa rõ ràng, thiếu mã lỗi, thiếu điều kiện dừng, hoặc mâu
   thuẫn giữa các tiêu chí — đây là nguồn nuôi câu hỏi cho Cổng Chặn Cứng
   (`references/02-clarification-gate.md`).
@@ -43,16 +44,12 @@ Danh mục biên bắt buộc rà soát cho mọi tính năng phù hợp:
 - **Thời gian**: năm nhuận (29/2), tháng 30 vs 31 ngày, ngày/giờ không tồn tại (`31/02`, `31/04`).
 - **Trạng thái**: chuyển trạng thái hợp lệ/bất hợp pháp giữa các state trong vòng đời đối tượng.
 
-Anchor tham khảo cho domain ngân hàng (dùng làm ví dụ cụ thể, luôn ưu tiên số liệu/mốc giờ thật của
-tài liệu nếu có nêu, chỉ dùng anchor này khi tài liệu không tự nêu):
-- Redzone EOD (End of Day) mặc định **18:00 giờ Việt Nam (VNT/GMT+7)**: `17:59:59` giao dịch bình
-  thường, `18:00:00` bắt đầu chặn, sau sự kiện `EOD-DONE` mở lại.
-- Số dư khả dụng = Số dư thực − Số tiền phong tỏa + Hạn mức thấu chi (OD).
-- Làm tròn: Banker's Rounding (round-half-even) vs round-half-up; số ngày tính lãi 365 vs 366.
-- Tách bạch thuế VAT (8%/10%) khỏi phí gốc.
-- Với sản phẩm vay/thấu chi có nhiều job thu nợ trong ngày (vd job 12h/17h/18h): thứ tự ưu tiên thu
-  nợ (lãi phạt > lãi trả chậm > lãi đến hạn > gốc) thường khác nhau theo khung giờ và theo khoản
-  vay đang Trong hạn hay Quá hạn — CHỈ áp dụng nếu tài liệu thật sự mô tả các job này.
+Biên/trạng thái đặc thù sản phẩm ngân hàng (cut-off, công thức số dư khả dụng, làm tròn, cơ sở
+ngày tính lãi, hạn mức, vòng đời giao dịch/khoản vay/thẻ/sổ tiết kiệm, thứ tự thu nợ, quy định
+pháp chế) được liệt kê dạng checklist trong `05-banking-domain-pack/` (`core.md` + module sản phẩm
+liên quan, xem Bước 2 của `SKILL.md`). Giá trị luôn lấy từ BRD/tài liệu; với mỗi module đã nạp,
+đối chiếu mục "Tham số cần lấy từ BRD", "Biên & giá trị đặc thù" và "Máy trạng thái" để liệt kê
+tham số/biên/trạng thái mà tài liệu còn bỏ ngỏ vào Ambiguities.
 
 ### 4. Phân tích đa góc nhìn (Multi-Stakeholder Perspective)
 - **Khách hàng (End-User)**: luồng giao dịch, message dễ hiểu, tốc độ phản hồi, giao diện.
@@ -65,7 +62,8 @@ tài liệu nếu có nêu, chỉ dùng anchor này khi tài liệu không tự 
 
 ### 5. Xác định bất biến nghiệp vụ (Business Invariants)
 Tìm nguyên tắc bất khả xâm phạm hệ thống không bao giờ được vi phạm. Mỗi bất biến phải có căn cứ
-từ tài liệu gốc hoặc kiến thức chuẩn ngành; nếu không có căn cứ rõ ràng, đánh dấu `[GIẢ ĐỊNH]` kèm
+từ tài liệu gốc hoặc bất biến tổng quát trong `05-banking-domain-pack/core.md`; nếu không có căn
+cứ rõ ràng, đánh dấu `[GIẢ ĐỊNH]` kèm
 lý do. Ví dụ bất biến điển hình ngành ngân hàng: cân bằng hạch toán kép (`Tổng Nợ GL = Tổng Có
 GL`), không trừ tiền 2 lần cho cùng một giao dịch (Zero Double-Debit, khi có `idempotency_key`),
 mọi thay đổi cấu hình/trạng thái tài khoản đều có audit log.
